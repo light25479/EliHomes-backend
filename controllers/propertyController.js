@@ -32,12 +32,12 @@ const uploadToCloudinary = (fileBuffer, mimetype) => {
 // Multer config to handle file uploads in memory
 const upload = multer({ storage: multer.memoryStorage() });
 
-// 🔹 Helper to transform images for frontend
-const transformImages = (images) =>
-  images.map((img) => ({
-    id: img.id,
-    url: img.url,
-    type: img.mimeType,
+// 🔹 Helper to transform images/videos for frontend
+const transformMedia = (media) =>
+  media.map((m) => ({
+    id: m.id,
+    url: m.url,
+    type: m.resourceType,
   }));
 
 // ======================================================
@@ -62,25 +62,27 @@ export const createProperty = async (req, res) => {
     const ownerId = req.user?.id;
     if (!ownerId) return res.status(401).json({ message: 'Unauthorized' });
 
-   // ✅ Upload images & videos to Cloudinary
-const uploadedFiles = [];
+    // ✅ Upload images & videos to Cloudinary
+    const uploadedFiles = [];
 
-if (req.files) {
-  // Combine all uploaded images and videos into one array
-  const allFiles = [
-    ...(req.files['images'] || []),
-    ...(req.files['videos'] || []),
-  ];
+    if (req.files) {
+      // Combine all uploaded images and videos into one array
+      const allFiles = [
+        ...(req.files['images'] || []),
+        ...(req.files['videos'] || []),
+      ];
 
-  for (const file of allFiles) {
-    const result = await uploadToCloudinary(file.buffer, file.mimetype);
-    uploadedFiles.push({
-      url: result.secure_url,
-      mimeType: file.mimetype, // Can be image/jpeg or video/mp4
-    });
-  }
-}
-
+      for (const file of allFiles) {
+        const result = await uploadToCloudinary(file.buffer, file.mimetype);
+        uploadedFiles.push({
+          url: result.secure_url,
+          publicId: result.public_id, // ✅ Cloudinary public ID
+          resourceType:
+            result.resource_type ||
+            (file.mimetype.startsWith('video/') ? 'video' : 'image'),
+        });
+      }
+    }
 
     const newProperty = await prisma.property.create({
       data: {
@@ -106,7 +108,7 @@ if (req.files) {
     res.status(201).json({
       property: {
         ...newProperty,
-        images: transformImages(newProperty.images),
+        images: transformMedia(newProperty.images),
       },
     });
   } catch (error) {
@@ -134,7 +136,7 @@ export const getPropertyById = async (req, res) => {
     res.status(200).json({
       property: {
         ...property,
-        images: transformImages(property.images),
+        images: transformMedia(property.images),
       },
     });
   } catch (error) {
@@ -159,7 +161,7 @@ export const getPropertiesByOwner = async (req, res) => {
 
     const listings = properties.map((prop) => ({
       ...prop,
-      images: transformImages(prop.images),
+      images: transformMedia(prop.images),
     }));
 
     res.status(200).json({ listings });
@@ -220,7 +222,7 @@ export const searchProperties = async (req, res) => {
     res.status(200).json({
       properties: properties.map((prop) => ({
         ...prop,
-        images: transformImages(prop.images),
+        images: transformMedia(prop.images),
       })),
     });
   } catch (error) {
@@ -266,27 +268,29 @@ export const updateProperty = async (req, res) => {
     }
 
     // Upload new files to Cloudinary
-const newMediaData = [];
-if (req.files) {
-  const allFiles = [
-    ...(req.files['images'] || []),
-    ...(req.files['videos'] || []),
-  ];
+    const newMediaData = [];
+    if (req.files) {
+      const allFiles = [
+        ...(req.files['images'] || []),
+        ...(req.files['videos'] || []),
+      ];
 
-  for (const file of allFiles) {
-    const result = await uploadToCloudinary(file.buffer, file.mimetype);
-    newMediaData.push({
-      url: result.secure_url,
-      mimeType: file.mimetype,
-      propertyId,
-    });
-  }
+      for (const file of allFiles) {
+        const result = await uploadToCloudinary(file.buffer, file.mimetype);
+        newMediaData.push({
+          url: result.secure_url,
+          publicId: result.public_id,
+          resourceType:
+            result.resource_type ||
+            (file.mimetype.startsWith('video/') ? 'video' : 'image'),
+          propertyId,
+        });
+      }
 
-  if (newMediaData.length > 0) {
-    await prisma.propertyImage.createMany({ data: newMediaData });
-  }
-}
-
+      if (newMediaData.length > 0) {
+        await prisma.propertyImage.createMany({ data: newMediaData });
+      }
+    }
 
     // Update property fields safely
     const updatedProperty = await prisma.property.update({
@@ -319,7 +323,7 @@ if (req.files) {
     res.status(200).json({
       property: {
         ...updatedProperty,
-        images: transformImages(updatedProperty.images),
+        images: transformMedia(updatedProperty.images),
       },
     });
   } catch (error) {
@@ -353,4 +357,6 @@ export const deleteProperty = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+
+
 
