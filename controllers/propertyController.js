@@ -62,17 +62,25 @@ export const createProperty = async (req, res) => {
     const ownerId = req.user?.id;
     if (!ownerId) return res.status(401).json({ message: 'Unauthorized' });
 
-    // Upload files to Cloudinary
-    const uploadedFiles = [];
-    if (req.files && req.files.length > 0) {
-      for (const file of req.files) {
-        const result = await uploadToCloudinary(file.buffer, file.mimetype);
-        uploadedFiles.push({
-          url: result.secure_url,
-          mimeType: file.mimetype,
-        });
-      }
-    }
+   // ✅ Upload images & videos to Cloudinary
+const uploadedFiles = [];
+
+if (req.files) {
+  // Combine all uploaded images and videos into one array
+  const allFiles = [
+    ...(req.files['images'] || []),
+    ...(req.files['videos'] || []),
+  ];
+
+  for (const file of allFiles) {
+    const result = await uploadToCloudinary(file.buffer, file.mimetype);
+    uploadedFiles.push({
+      url: result.secure_url,
+      mimeType: file.mimetype, // Can be image/jpeg or video/mp4
+    });
+  }
+}
+
 
     const newProperty = await prisma.property.create({
       data: {
@@ -258,18 +266,27 @@ export const updateProperty = async (req, res) => {
     }
 
     // Upload new files to Cloudinary
-    const newImagesData = [];
-    if (req.files && req.files.length > 0) {
-      for (const file of req.files) {
-        const result = await uploadToCloudinary(file.buffer, file.mimetype);
-        newImagesData.push({
-          url: result.secure_url,
-          mimeType: file.mimetype,
-          propertyId,
-        });
-      }
-      await prisma.propertyImage.createMany({ data: newImagesData });
-    }
+const newMediaData = [];
+if (req.files) {
+  const allFiles = [
+    ...(req.files['images'] || []),
+    ...(req.files['videos'] || []),
+  ];
+
+  for (const file of allFiles) {
+    const result = await uploadToCloudinary(file.buffer, file.mimetype);
+    newMediaData.push({
+      url: result.secure_url,
+      mimeType: file.mimetype,
+      propertyId,
+    });
+  }
+
+  if (newMediaData.length > 0) {
+    await prisma.propertyImage.createMany({ data: newMediaData });
+  }
+}
+
 
     // Update property fields safely
     const updatedProperty = await prisma.property.update({
@@ -336,3 +353,4 @@ export const deleteProperty = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+
