@@ -1,4 +1,3 @@
-// routes/propertyRoutes.js
 import express from 'express';
 import multer from 'multer';
 import {
@@ -14,28 +13,42 @@ import { checkPaymentOptional } from '../middleware/paymentCheck.js';
 
 const router = express.Router();
 
-// ✅ Setup Multer for handling multiple images in memory
+// ✅ Setup Multer for handling multiple image/video uploads in memory
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
-// ✅ Upload + Create Property (with multiple images)
+// ✅ Upload + Create Property (supports both images and videos)
 router.post(
   '/',
   authMiddleware,
   checkPaymentOptional('LISTING'),
-  upload.array('images', 10), // allow up to 10 images
-  createProperty // use the updated controller
+  upload.fields([
+    { name: 'images', maxCount: 10 },
+    { name: 'videos', maxCount: 5 },
+  ]),
+  createProperty
 );
 
 // ✅ Owner-specific properties
 router.get('/owner', authMiddleware, getPropertiesByOwner);
 
-// ✅ Update/Delete
-router.put('/:id', authMiddleware, upload.array('images', 10), updateProperty);
+// ✅ Update Property (supports both images and videos)
+router.put(
+  '/:id',
+  authMiddleware,
+  upload.fields([
+    { name: 'images', maxCount: 10 },
+    { name: 'videos', maxCount: 5 },
+  ]),
+  updateProperty
+);
+
+// ✅ Delete Property
 router.delete('/:id', authMiddleware, deleteProperty);
 
 // ✅ Public routes
-router.post('/search', searchProperties); // search with filters
-router.get('/:id', getPropertyById); // get property by ID
+router.post('/search', searchProperties); // Search with filters
+router.get('/:id', getPropertyById); // Get property by ID
 
 export default router;
+
