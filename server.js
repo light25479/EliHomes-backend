@@ -1,4 +1,3 @@
-// File: server.js
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -8,7 +7,7 @@ dotenv.config();
 import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
-// ✅ ROUTES
+// ✅ Routes
 import contactAccessRoutes from "./routes/contactAccessRoutes.js";
 import listingPaymentRoutes from './routes/listingPaymentRoutes.js';
 import mpesaRoutes from './routes/mpesa.js';
@@ -35,12 +34,11 @@ const app = express();
 const allowedOrigins = [
   'http://localhost:3000',
   'https://elihomes-frontend.vercel.app',
-  'https://elihomes.vercel.app', // added production frontend
+  'https://elihomes.vercel.app',
 ];
 
 app.use(cors({
   origin: (origin, callback) => {
-    // allow requests with no origin (like mobile apps or curl)
     if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
       callback(null, true);
     } else {
@@ -50,10 +48,8 @@ app.use(cors({
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   credentials: true,
-  optionsSuccessStatus: 200,
 }));
 
-// ✅ Increase body size limit to support base64 images
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
@@ -65,10 +61,10 @@ app.use(express.static('public'));
 app.get('/health', async (req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
-    res.json({ db: '✅ connected' });
+    res.json({ status: 'ok', db: '✅ connected' });
   } catch (err) {
     console.error('❌ DB connection failed:', err);
-    res.status(500).json({ db: '❌ connection failed', error: err.message });
+    res.status(500).json({ status: 'error', db: '❌ connection failed', error: err.message });
   }
 });
 
@@ -103,8 +99,9 @@ app.use((req, res) => {
   res.status(404).json({ message: 'Route not found' });
 });
 
-// ✅ Start Server
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+// ✅ Start Server (Render requires 0.0.0.0)
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Server running on port ${PORT}`);
 });
+
