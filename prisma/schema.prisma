@@ -1,0 +1,215 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                  Int                  @id @default(autoincrement())
+  email               String               @unique
+  password            String
+  role                Role
+  name                String
+  properties          Property[]           @relation("OwnerProperties")
+  bills               Bill[]               @relation("TenantBills")
+  tenantPayments      RentPayment[]        @relation("TenantPayments")
+  agentPayments       RentPayment[]        @relation("AgentTracking")
+  supportMessages     SupportMessage[]
+  billPayments        BillPayment[]
+  maintenanceRequests MaintenanceRequest[]
+  paymentDetails      PaymentDetails[]
+  payoutAccounts      PayoutAccount[]
+  tenantBillPayments  BillPayment[]        @relation("TenantBillPayments")
+  auditLogs           AuditLog[]
+  phone               String?
+  whatsapp            String?
+  contactAccesses     ContactAccess[]
+
+  // Payments for creating listings
+  listingPayments     ListingPayment[]
+}
+
+enum Role {
+  TENANT
+  OWNER
+  AGENT
+}
+
+model RentPayment {
+  id                     Int       @id @default(autoincrement())
+  tenantId               Int
+  propertyId             Int
+  agentId                Int?
+  amount                 Float
+  serviceCharge          Float
+  totalAmount            Float
+  paymentMethod          String
+  status                 String?   @default("pending")
+  paidAt                 DateTime? @default(now())
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  destinationAccount     String?
+  serviceChargeAccount   String?
+  mpesaCheckoutRequestID String?
+
+  tenant   User     @relation("TenantPayments", fields: [tenantId], references: [id])
+  agent    User?    @relation("AgentTracking", fields: [agentId], references: [id])
+  property Property @relation("PropertyRentPayments", fields: [propertyId], references: [id])
+}
+
+model Bill {
+  id          Int      @id @default(autoincrement())
+  description String
+  amount      Float
+  dueDate     DateTime
+  isPaid      Boolean  @default(false)
+
+  tenant     User     @relation("TenantBills", fields: [tenantId], references: [id])
+  tenantId   Int
+  property   Property @relation("PropertyBills", fields: [propertyId], references: [id])
+  propertyId Int
+
+  billPayments BillPayment[]
+}
+
+model SupportMessage {
+  id        Int      @id @default(autoincrement())
+  tenant    User     @relation(fields: [tenantId], references: [id])
+  tenantId  Int
+  subject   String
+  message   String
+  createdAt DateTime @default(now())
+}
+
+model BillPayment {
+  id                   Int       @id @default(autoincrement())
+  tenantId             Int
+  propertyId           Int
+  billType             String
+  amount               Float
+  serviceCharge        Float
+  totalAmount          Float
+  paymentMethod        String
+  status               String?   @default("pending")
+  paidAt               DateTime? @default(now())
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  destinationAccount   String?
+  serviceChargeAccount String?
+
+  tenant   User     @relation("TenantBillPayments", fields: [tenantId], references: [id])
+  property Property @relation("PropertyBillPayments", fields: [propertyId], references: [id])
+  User     User?    @relation(fields: [userId], references: [id])
+  userId   Int?
+  Bill     Bill?    @relation(fields: [billId], references: [id])
+  billId   Int?
+}
+
+model MaintenanceRequest {
+  id          Int      @id @default(autoincrement())
+  description String
+  status      String   @default("Pending")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant     User     @relation(fields: [tenantId], references: [id])
+  tenantId   Int
+  property   Property @relation("PropertyMaintenance", fields: [propertyId], references: [id])
+  propertyId Int
+}
+
+model PaymentDetails {
+  id            Int    @id @default(autoincrement())
+  method        String
+  accountName   String
+  accountNumber String
+  userId        Int
+  user          User   @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
+model PayoutAccount {
+  id        Int      @id @default(autoincrement())
+  owner     User     @relation(fields: [ownerId], references: [id])
+  ownerId   Int
+  method    String
+  account   String
+  bankName  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  action    String
+  amount    Float
+  method    String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model Property {
+  id          Int              @id @default(autoincrement())
+  title       String
+  description String?
+  price       Float
+  location    String
+  roomType    String?
+  electricity Boolean          @default(false)
+  wifi        Boolean          @default(false)
+  water       Boolean          @default(false)
+  owner       User             @relation("OwnerProperties", fields: [ownerId], references: [id])
+  ownerId     Int
+  createdAt   DateTime         @default(now())
+  contactAccesses ContactAccess[]
+  images      PropertyImage[]  // ✅ multiple images
+   // Property-specific contact info
+  contactEmail    String?
+  contactPhone    String?
+  contactWhatsapp String?
+  // Back-relations
+  rentPayments        RentPayment[]        @relation("PropertyRentPayments")
+  bills               Bill[]               @relation("PropertyBills")
+  billPayments        BillPayment[]        @relation("PropertyBillPayments")
+  maintenanceRequests MaintenanceRequest[] @relation("PropertyMaintenance")
+}
+
+model PropertyImage {
+  id          Int       @id @default(autoincrement())
+  url         String    // ✅ Cloudinary URL
+  publicId    String    // ✅ Cloudinary public_id (for delete/update)
+  resourceType String   // ✅ image or video
+  property    Property  @relation(fields: [propertyId], references: [id])
+  propertyId  Int
+  createdAt   DateTime  @default(now())
+}
+
+model ListingPayment {
+  id             Int      @id @default(autoincrement())
+  userId         Int
+  user           User     @relation(fields: [userId], references: [id])
+  amount         Float
+  transactionId  String   @unique
+  phone          String
+  status         String
+  createdAt      DateTime @default(now())
+  paid           Boolean  @default(false) 
+}
+
+model ContactAccess {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  propertyId Int
+  createdAt  DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id])
+  property Property @relation(fields: [propertyId], references: [id])
+
+  @@unique([userId, propertyId])
+}
