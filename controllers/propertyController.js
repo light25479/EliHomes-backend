@@ -44,7 +44,7 @@ const transformMedia = (media) =>
   });
 
 // ======================================================
-// 🏡 CREATE PROPERTY
+// 🏡 CREATE PROPERTY 
 // ======================================================
 export const createProperty = async (req, res) => {
   try {
@@ -73,10 +73,12 @@ export const createProperty = async (req, res) => {
         uploadedFiles.push({
           url: result.secure_url,
           mimeType: file.mimetype || 'image/jpeg',
+          resourceType: file.mimetype.startsWith('video') ? 'video' : 'image',
         });
       }
     }
 
+    // Create property with media
     const newProperty = await prisma.property.create({
       data: {
         title,
@@ -92,7 +94,11 @@ export const createProperty = async (req, res) => {
         contactPhone: contactPhone || null,
         contactWhatsapp: contactWhatsapp || null,
         images: {
-          create: uploadedFiles,
+          create: uploadedFiles.map((f) => ({
+            url: f.url,
+            mimeType: f.mimeType,
+            resourceType: f.resourceType,
+          })),
         },
       },
       include: { images: true },
@@ -109,6 +115,7 @@ export const createProperty = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+
 
 // ======================================================
 // 🏠 GET PROPERTY BY ID
@@ -339,6 +346,7 @@ export const deleteProperty = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+
 
 
 
