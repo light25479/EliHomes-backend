@@ -98,7 +98,7 @@ export const createProperty = async (req, res) => {
     res.status(201).json({
       property: {
         ...newProperty,
-        images: transformMedia(newProperty.images), // ✅ fixed
+        images: transformMedia(newProperty.images),
       },
     });
   } catch (error) {
@@ -144,7 +144,7 @@ export const getPropertiesByOwner = async (req, res) => {
     if (!ownerId) return res.status(401).json({ message: 'Unauthorized' });
 
     const properties = await prisma.property.findMany({
-      where: { ownerId },
+      where: ownerId ? { ownerId } : {}, // Safe fallback
       include: { images: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -203,8 +203,9 @@ export const searchProperties = async (req, res) => {
     if (wifi === true || wifi === 'true') whereConditions.push({ wifi: true });
     if (water === true || water === 'true') whereConditions.push({ water: true });
 
+    // Safe fallback if no conditions
     const properties = await prisma.property.findMany({
-      where: { AND: whereConditions },
+      where: whereConditions.length ? { AND: whereConditions } : {},
       include: { images: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -336,6 +337,8 @@ export const deleteProperty = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+
+
 
 
 
