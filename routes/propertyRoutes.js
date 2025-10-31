@@ -13,33 +13,27 @@ import { checkPaymentOptional } from '../middleware/paymentCheck.js';
 
 const router = express.Router();
 
-// ✅ Setup Multer for handling multiple image/video uploads in memory
+// ✅ Setup Multer for handling multiple uploads in memory
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
-// ✅ Upload + Create Property (supports both images and videos)
+// ✅ Upload + Create Property (frontend sends all files under 'files')
 router.post(
   '/',
   authMiddleware,
   checkPaymentOptional('LISTING'),
-  upload.fields([
-    { name: 'images', maxCount: 10 },
-    { name: 'videos', maxCount: 5 },
-  ]),
+  upload.array('files', 20), // <--- Accept up to 20 files (images or videos)
   createProperty
 );
 
 // ✅ Owner-specific properties
 router.get('/owner', authMiddleware, getPropertiesByOwner);
 
-// ✅ Update Property (supports both images and videos)
+// ✅ Update Property (also accepts 'files')
 router.put(
   '/:id',
   authMiddleware,
-  upload.fields([
-    { name: 'images', maxCount: 10 },
-    { name: 'videos', maxCount: 5 },
-  ]),
+  upload.array('files', 20), // same here for consistency
   updateProperty
 );
 
@@ -47,8 +41,9 @@ router.put(
 router.delete('/:id', authMiddleware, deleteProperty);
 
 // ✅ Public routes
-router.post('/search', searchProperties); // Search with filters
-router.get('/:id', getPropertyById); // Get property by ID
+router.post('/search', searchProperties);
+router.get('/:id', getPropertyById);
 
 export default router;
+
 
