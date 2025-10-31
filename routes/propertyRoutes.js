@@ -10,7 +10,7 @@ import {
 } from '../controllers/propertyController.js';
 import authMiddleware from '../middleware/auth.js';
 import { checkPaymentOptional } from '../middleware/paymentCheck.js';
-
+import { getRoomTypes } from '../controllers/propertyController.js';
 const router = express.Router();
 
 // ✅ Setup Multer for handling multiple uploads in memory
@@ -28,7 +28,7 @@ router.post(
 
 // ✅ Owner-specific properties
 router.get('/owner', authMiddleware, getPropertiesByOwner);
-
+router.get('/room-types', getRoomTypes);
 // ✅ Update Property (also accepts 'files')
 router.put(
   '/:id',
@@ -45,5 +45,6 @@ router.post('/search', searchProperties);
 router.get('/:id', getPropertyById);
 
 export default router;
+
 
 
