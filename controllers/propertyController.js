@@ -30,16 +30,15 @@ const uploadToCloudinary = (fileBuffer, mimetype) => {
 };
 
 // Multer config to handle file uploads in memory
-const upload = multer({ storage: multer.memoryStorage() });
+export const upload = multer({ storage: multer.memoryStorage() });
 
-// 🔹 Helper to transform images for frontend
+// 🔹 Helper to transform media for frontend
 const transformMedia = (media) =>
   media.map((item) => ({
     id: item.id,
     url: item.url,
     resourceType: item.mimeType.startsWith('video') ? 'video' : 'image',
   }));
-
 
 // ======================================================
 // 🏡 CREATE PROPERTY
@@ -99,7 +98,7 @@ export const createProperty = async (req, res) => {
     res.status(201).json({
       property: {
         ...newProperty,
-        images: transformImages(newProperty.images),
+        images: transformMedia(newProperty.images), // ✅ fixed
       },
     });
   } catch (error) {
@@ -127,7 +126,7 @@ export const getPropertyById = async (req, res) => {
     res.status(200).json({
       property: {
         ...property,
-       images: transformMedia(property.images),
+        images: transformMedia(property.images),
       },
     });
   } catch (error) {
@@ -337,6 +336,8 @@ export const deleteProperty = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+
+
 
 
 
