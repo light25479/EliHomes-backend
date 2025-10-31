@@ -32,13 +32,14 @@ const uploadToCloudinary = (fileBuffer, mimetype) => {
 // Multer config to handle file uploads in memory
 const upload = multer({ storage: multer.memoryStorage() });
 
-// 🔹 Helper to transform images/videos for frontend
+// 🔹 Helper to transform images for frontend
 const transformMedia = (media) =>
-  media.map((m) => ({
-    id: m.id,
-    url: m.url,
-    type: m.resourceType,
+  media.map((item) => ({
+    id: item.id,
+    url: item.url,
+    resourceType: item.mimeType.startsWith('video') ? 'video' : 'image',
   }));
+
 
 // ======================================================
 // 🏡 CREATE PROPERTY
@@ -62,24 +63,14 @@ export const createProperty = async (req, res) => {
     const ownerId = req.user?.id;
     if (!ownerId) return res.status(401).json({ message: 'Unauthorized' });
 
-    // ✅ Upload images & videos to Cloudinary
+    // Upload files to Cloudinary
     const uploadedFiles = [];
-
-    if (req.files) {
-      // Combine all uploaded images and videos into one array
-      const allFiles = [
-        ...(req.files['images'] || []),
-        ...(req.files['videos'] || []),
-      ];
-
-      for (const file of allFiles) {
+    if (req.files && req.files.length > 0) {
+      for (const file of req.files) {
         const result = await uploadToCloudinary(file.buffer, file.mimetype);
         uploadedFiles.push({
           url: result.secure_url,
-          publicId: result.public_id, // ✅ Cloudinary public ID
-          resourceType:
-            result.resource_type ||
-            (file.mimetype.startsWith('video/') ? 'video' : 'image'),
+          mimeType: file.mimetype,
         });
       }
     }
@@ -108,7 +99,7 @@ export const createProperty = async (req, res) => {
     res.status(201).json({
       property: {
         ...newProperty,
-        images: transformMedia(newProperty.images),
+        images: transformImages(newProperty.images),
       },
     });
   } catch (error) {
@@ -136,7 +127,7 @@ export const getPropertyById = async (req, res) => {
     res.status(200).json({
       property: {
         ...property,
-        images: transformMedia(property.images),
+       images: transformMedia(property.images),
       },
     });
   } catch (error) {
@@ -268,28 +259,17 @@ export const updateProperty = async (req, res) => {
     }
 
     // Upload new files to Cloudinary
-    const newMediaData = [];
-    if (req.files) {
-      const allFiles = [
-        ...(req.files['images'] || []),
-        ...(req.files['videos'] || []),
-      ];
-
-      for (const file of allFiles) {
+    const newImagesData = [];
+    if (req.files && req.files.length > 0) {
+      for (const file of req.files) {
         const result = await uploadToCloudinary(file.buffer, file.mimetype);
-        newMediaData.push({
+        newImagesData.push({
           url: result.secure_url,
-          publicId: result.public_id,
-          resourceType:
-            result.resource_type ||
-            (file.mimetype.startsWith('video/') ? 'video' : 'image'),
+          mimeType: file.mimetype,
           propertyId,
         });
       }
-
-      if (newMediaData.length > 0) {
-        await prisma.propertyImage.createMany({ data: newMediaData });
-      }
+      await prisma.propertyImage.createMany({ data: newImagesData });
     }
 
     // Update property fields safely
@@ -357,6 +337,7 @@ export const deleteProperty = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+
 
 
 
