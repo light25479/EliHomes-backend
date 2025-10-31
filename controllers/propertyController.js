@@ -192,7 +192,7 @@ export const searchProperties = async (req, res) => {
       water,
     } = req.body;
 
-    const where: any = {};
+    const where = {};
 
     // Text search: query OR location
     if (query || location) {
