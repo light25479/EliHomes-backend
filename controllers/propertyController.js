@@ -35,8 +35,7 @@ export const upload = multer({ storage: multer.memoryStorage() });
 // 🔹 Helper to transform media for frontend (detect videos)
 const transformMedia = (media) =>
   media.map((item) => {
-    const isVideo =
-      item.resourceType === 'video' || item.mimeType?.startsWith('video') || item.url?.endsWith('.mp4');
+    const isVideo = item.mimeType?.startsWith('video') || item.url?.endsWith('.mp4');
     return {
       id: item.id,
       url: item.url,
@@ -45,7 +44,7 @@ const transformMedia = (media) =>
   });
 
 // ======================================================
-// 🏡 CREATE PROPERTY
+// 🏡 CREATE PROPERTY 
 // ======================================================
 export const createProperty = async (req, res) => {
   try {
@@ -73,8 +72,7 @@ export const createProperty = async (req, res) => {
         const result = await uploadToCloudinary(file.buffer, file.mimetype);
         uploadedFiles.push({
           url: result.secure_url,
-          publicId: result.public_id,
-          mimeType: file.mimetype,
+          mimeType: file.mimetype || 'image/jpeg',
           resourceType: file.mimetype.startsWith('video') ? 'video' : 'image',
         });
       }
@@ -100,7 +98,6 @@ export const createProperty = async (req, res) => {
             url: f.url,
             mimeType: f.mimeType,
             resourceType: f.resourceType,
-            publicId: f.publicId,
           })),
         },
       },
@@ -118,6 +115,7 @@ export const createProperty = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+
 
 // ======================================================
 // 🏠 GET PROPERTY BY ID
@@ -161,14 +159,74 @@ export const getPropertiesByOwner = async (req, res) => {
       orderBy: { createdAt: 'desc' },
     });
 
+    const listings = properties.map((prop) => ({
+      ...prop,
+      images: transformMedia(prop.images),
+    }));
+
+    res.status(200).json({ listings });
+  } catch (error) {
+    console.error('❌ Failed to fetch properties for owner:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// ======================================================
+// 🔍 SEARCH PROPERTIES
+// ======================================================
+export const searchProperties = async (req, res) => {
+  try {
+    const {
+      query,
+      location,
+      roomType,
+      minPrice,
+      maxPrice,
+      electricity,
+      wifi,
+      water,
+    } = req.body;
+
+    const whereConditions = [];
+
+    if (query || location) {
+      const orConditions = [];
+      if (query)
+        orConditions.push({ title: { contains: query, mode: 'insensitive' } });
+      if (location)
+        orConditions.push({ location: { contains: location, mode: 'insensitive' } });
+      if (orConditions.length) whereConditions.push({ OR: orConditions });
+    }
+
+    if (roomType)
+      whereConditions.push({ roomType: { contains: roomType, mode: 'insensitive' } });
+
+    if (minPrice || maxPrice) {
+      const priceFilter = {};
+      if (!isNaN(Number(minPrice))) priceFilter.gte = Number(minPrice);
+      if (!isNaN(Number(maxPrice))) priceFilter.lte = Number(maxPrice);
+      if (Object.keys(priceFilter).length) whereConditions.push({ price: priceFilter });
+    }
+
+    if (electricity === true || electricity === 'true')
+      whereConditions.push({ electricity: true });
+    if (wifi === true || wifi === 'true') whereConditions.push({ wifi: true });
+    if (water === true || water === 'true') whereConditions.push({ water: true });
+
+    const properties = await prisma.property.findMany({
+      where: whereConditions.length ? { AND: whereConditions } : {},
+      include: { images: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
     res.status(200).json({
-      listings: properties.map((prop) => ({
+      properties: properties.map((prop) => ({
         ...prop,
         images: transformMedia(prop.images),
       })),
     });
   } catch (error) {
-    console.error('❌ Failed to fetch properties for owner:', error);
+    console.error('❌ Failed to search properties:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -190,51 +248,40 @@ export const updateProperty = async (req, res) => {
     if (!property || property.ownerId !== ownerId)
       return res.status(403).json({ message: 'Unauthorized or property not found' });
 
-    // Remove old images if requested
+    // Handle removed images
     let idsToRemove = [];
     const removeImageIdsRaw = req.body?.removeImageIds;
     if (removeImageIdsRaw) {
       if (Array.isArray(removeImageIdsRaw)) {
-        idsToRemove = removeImageIdsRaw.map(Number).filter((id) => !isNaN(id));
+        idsToRemove = removeImageIdsRaw.map((id) => Number(id)).filter((id) => !isNaN(id));
       } else if (typeof removeImageIdsRaw === 'string') {
-        idsToRemove = removeImageIdsRaw.split(',').map(Number).filter((id) => !isNaN(id));
-      }
-
-      if (idsToRemove.length > 0) {
-        const imagesToDelete = await prisma.propertyImage.findMany({
-          where: { id: { in: idsToRemove }, propertyId },
-        });
-
-        // Delete from Cloudinary
-        await Promise.all(
-          imagesToDelete.map((img) =>
-            cloudinary.uploader.destroy(img.publicId, { resource_type: img.resourceType })
-          )
-        );
-
-        await prisma.propertyImage.deleteMany({
-          where: { id: { in: idsToRemove }, propertyId },
-        });
+        idsToRemove = removeImageIdsRaw
+          .split(',')
+          .map((id) => Number(id))
+          .filter((id) => !isNaN(id));
       }
     }
+    if (idsToRemove.length) {
+      await prisma.propertyImage.deleteMany({
+        where: { id: { in: idsToRemove }, propertyId },
+      });
+    }
 
-    // Upload new files if any
+    // Upload new files to Cloudinary
     const newImagesData = [];
     if (req.files && req.files.length > 0) {
       for (const file of req.files) {
         const result = await uploadToCloudinary(file.buffer, file.mimetype);
         newImagesData.push({
           url: result.secure_url,
-          mimeType: file.mimetype,
-          resourceType: file.mimetype.startsWith('video') ? 'video' : 'image',
-          publicId: result.public_id,
+          mimeType: file.mimetype || 'image/jpeg',
           propertyId,
         });
       }
       await prisma.propertyImage.createMany({ data: newImagesData });
     }
 
-    // Update property fields
+    // Update property fields safely
     const updatedProperty = await prisma.property.update({
       where: { id: propertyId },
       data: {
@@ -283,21 +330,11 @@ export const deleteProperty = async (req, res) => {
     const ownerId = req.user?.id;
     if (!ownerId) return res.status(401).json({ message: 'Unauthorized' });
 
-    const property = await prisma.property.findUnique({
-      where: { id: propertyId },
-      include: { images: true },
-    });
+    const property = await prisma.property.findUnique({ where: { id: propertyId } });
     if (!property || property.ownerId !== ownerId)
       return res.status(403).json({ message: 'Unauthorized or property not found' });
 
-    // Delete related media from Cloudinary
-    await Promise.all(
-      property.images.map((img) =>
-        cloudinary.uploader.destroy(img.publicId, { resource_type: img.resourceType })
-      )
-    );
-
-    // Delete related images from DB
+    // Delete related images
     await prisma.propertyImage.deleteMany({ where: { propertyId } });
 
     // Delete property
@@ -309,6 +346,18 @@ export const deleteProperty = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
