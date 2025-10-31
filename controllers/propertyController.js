@@ -14,7 +14,7 @@ cloudinary.config({
 // Helper for Cloudinary upload
 const uploadToCloudinary = (fileBuffer, mimetype) => {
   return new Promise((resolve, reject) => {
-    const isVideo = mimetype.startsWith('video/');
+    const isVideo = mimetype?.startsWith('video/');
     const stream = cloudinary.uploader.upload_stream(
       {
         folder: 'elihomes_uploads',
@@ -32,12 +32,12 @@ const uploadToCloudinary = (fileBuffer, mimetype) => {
 // Multer config to handle file uploads in memory
 export const upload = multer({ storage: multer.memoryStorage() });
 
-// 🔹 Helper to transform media for frontend
+// 🔹 Helper to transform media for frontend (safe for missing mimeType)
 const transformMedia = (media) =>
   media.map((item) => ({
     id: item.id,
     url: item.url,
-    resourceType: item.mimeType.startsWith('video') ? 'video' : 'image',
+    resourceType: item.mimeType?.startsWith('video') ? 'video' : 'image',
   }));
 
 // ======================================================
@@ -69,7 +69,7 @@ export const createProperty = async (req, res) => {
         const result = await uploadToCloudinary(file.buffer, file.mimetype);
         uploadedFiles.push({
           url: result.secure_url,
-          mimeType: file.mimetype,
+          mimeType: file.mimetype || 'image/jpeg', // default mimeType if missing
         });
       }
     }
@@ -144,7 +144,7 @@ export const getPropertiesByOwner = async (req, res) => {
     if (!ownerId) return res.status(401).json({ message: 'Unauthorized' });
 
     const properties = await prisma.property.findMany({
-      where: ownerId ? { ownerId } : {}, // Safe fallback
+      where: { ownerId },
       include: { images: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -203,7 +203,6 @@ export const searchProperties = async (req, res) => {
     if (wifi === true || wifi === 'true') whereConditions.push({ wifi: true });
     if (water === true || water === 'true') whereConditions.push({ water: true });
 
-    // Safe fallback if no conditions
     const properties = await prisma.property.findMany({
       where: whereConditions.length ? { AND: whereConditions } : {},
       include: { images: true },
@@ -265,7 +264,7 @@ export const updateProperty = async (req, res) => {
         const result = await uploadToCloudinary(file.buffer, file.mimetype);
         newImagesData.push({
           url: result.secure_url,
-          mimeType: file.mimetype,
+          mimeType: file.mimetype || 'image/jpeg', // default mimeType
           propertyId,
         });
       }
@@ -337,6 +336,8 @@ export const deleteProperty = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+
+
 
 
 
