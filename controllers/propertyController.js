@@ -32,13 +32,16 @@ const uploadToCloudinary = (fileBuffer, mimetype) => {
 // Multer config to handle file uploads in memory
 export const upload = multer({ storage: multer.memoryStorage() });
 
-// 🔹 Helper to transform media for frontend (safe for missing mimeType)
+// 🔹 Helper to transform media for frontend (detect videos)
 const transformMedia = (media) =>
-  media.map((item) => ({
-    id: item.id,
-    url: item.url,
-    resourceType: item.mimeType?.startsWith('video') ? 'video' : 'image',
-  }));
+  media.map((item) => {
+    const isVideo = item.mimeType?.startsWith('video') || item.url?.endsWith('.mp4');
+    return {
+      id: item.id,
+      url: item.url,
+      resourceType: isVideo ? 'video' : 'image',
+    };
+  });
 
 // ======================================================
 // 🏡 CREATE PROPERTY
@@ -69,7 +72,7 @@ export const createProperty = async (req, res) => {
         const result = await uploadToCloudinary(file.buffer, file.mimetype);
         uploadedFiles.push({
           url: result.secure_url,
-          mimeType: file.mimetype || 'image/jpeg', // default mimeType if missing
+          mimeType: file.mimetype || 'image/jpeg',
         });
       }
     }
@@ -264,7 +267,7 @@ export const updateProperty = async (req, res) => {
         const result = await uploadToCloudinary(file.buffer, file.mimetype);
         newImagesData.push({
           url: result.secure_url,
-          mimeType: file.mimetype || 'image/jpeg', // default mimeType
+          mimeType: file.mimetype || 'image/jpeg',
           propertyId,
         });
       }
@@ -336,6 +339,8 @@ export const deleteProperty = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+
+
 
 
 
