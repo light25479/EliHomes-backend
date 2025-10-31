@@ -362,6 +362,27 @@ export const deleteProperty = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+// ======================================================
+// 🔹 GET DISTINCT ROOM TYPES
+// ======================================================
+export const getRoomTypes = async (req, res) => {
+  try {
+    const roomTypes = await prisma.property.findMany({
+      select: { roomType: true },
+      where: { roomType: { not: null } },
+      distinct: ['roomType'],
+      orderBy: { roomType: 'asc' },
+    });
+
+    res.status(200).json({
+      roomTypes: roomTypes.map(rt => rt.roomType),
+    });
+  } catch (error) {
+    console.error('❌ Failed to fetch room types:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 
 
 
