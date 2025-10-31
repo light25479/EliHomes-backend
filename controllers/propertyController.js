@@ -72,17 +72,12 @@ export const createProperty = async (req, res) => {
     const uploadedFiles = [];
     if (req.files && req.files.length > 0) {
       for (const file of req.files) {
-        console.log('🆙 Uploading to Cloudinary:', file.originalname);
         const result = await uploadToCloudinary(file.buffer, file.mimetype);
-        console.log('📸 Cloudinary result:', result);
-
         uploadedFiles.push({
           url: result.secure_url,
           publicId: result.public_id,
           mimeType: file.mimetype || 'image/jpeg',
-          resourceType: file.mimetype.startsWith('video')
-            ? 'video'
-            : 'image',
+          resourceType: file.mimetype.startsWith('video') ? 'video' : 'image',
         });
       }
     }
@@ -197,36 +192,33 @@ export const searchProperties = async (req, res) => {
       water,
     } = req.body;
 
-    const where = [];
+    const where: any = {};
 
+    // Text search: query OR location
     if (query || location) {
-      const or = [];
-      if (query)
-        or.push({ title: { contains: query, mode: 'insensitive' } });
-      if (location)
-        or.push({ location: { contains: location, mode: 'insensitive' } });
-      if (or.length) where.push({ OR: or });
+      const orConditions = [];
+      if (query) orConditions.push({ title: { contains: query, mode: 'insensitive' } });
+      if (location) orConditions.push({ location: { contains: location, mode: 'insensitive' } });
+      if (orConditions.length) where.OR = orConditions;
     }
 
-    if (roomType)
-      where.push({ roomType: { contains: roomType, mode: 'insensitive' } });
+    // Exact match for room type
+    if (roomType) where.roomType = roomType;
 
+    // Price filters
     if (minPrice || maxPrice) {
-      const priceFilter = {};
-      if (minPrice) priceFilter.gte = Number(minPrice);
-      if (maxPrice) priceFilter.lte = Number(maxPrice);
-      where.push({ price: priceFilter });
+      where.price = {};
+      if (minPrice) where.price.gte = Number(minPrice);
+      if (maxPrice) where.price.lte = Number(maxPrice);
     }
 
-    if (electricity === true || electricity === 'true')
-      where.push({ electricity: true });
-    if (wifi === true || wifi === 'true')
-      where.push({ wifi: true });
-    if (water === true || water === 'true')
-      where.push({ water: true });
+    // Boolean amenities: only filter if true
+    if (electricity === true || electricity === 'true') where.electricity = true;
+    if (wifi === true || wifi === 'true') where.wifi = true;
+    if (water === true || water === 'true') where.water = true;
 
     const properties = await prisma.property.findMany({
-      where: where.length ? { AND: where } : {},
+      where,
       include: { images: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -370,6 +362,8 @@ export const deleteProperty = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+
+
 
 
 
