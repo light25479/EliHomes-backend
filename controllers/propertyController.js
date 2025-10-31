@@ -11,7 +11,14 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// Helper for Cloudinary upload
+// ==================
+// 📦 MULTER (in-memory storage)
+// ==================
+export const upload = multer({ storage: multer.memoryStorage() });
+
+// ==================
+// ☁️ Upload Helper
+// ==================
 const uploadToCloudinary = (fileBuffer, mimetype) => {
   return new Promise((resolve, reject) => {
     const isVideo = mimetype?.startsWith('video/');
@@ -29,22 +36,18 @@ const uploadToCloudinary = (fileBuffer, mimetype) => {
   });
 };
 
-// Multer config to handle file uploads in memory
-export const upload = multer({ storage: multer.memoryStorage() });
-
-// 🔹 Helper to transform media for frontend (detect videos)
+// ==================
+// 🔄 Media Transformer
+// ==================
 const transformMedia = (media) =>
-  media.map((item) => {
-    const isVideo = item.mimeType?.startsWith('video') || item.url?.endsWith('.mp4');
-    return {
-      id: item.id,
-      url: item.url,
-      resourceType: isVideo ? 'video' : 'image',
-    };
-  });
+  media.map((item) => ({
+    id: item.id,
+    url: item.url,
+    resourceType: item.resourceType || (item.mimeType?.startsWith('video') ? 'video' : 'image'),
+  }));
 
 // ======================================================
-// 🏡 CREATE PROPERTY 
+// 🏡 CREATE PROPERTY
 // ======================================================
 export const createProperty = async (req, res) => {
   try {
@@ -65,20 +68,24 @@ export const createProperty = async (req, res) => {
     const ownerId = req.user?.id;
     if (!ownerId) return res.status(401).json({ message: 'Unauthorized' });
 
-    // Upload files to Cloudinary
+    // ✅ Gather uploaded media
+    const files = [
+      ...(req.files?.images || []),
+      ...(req.files?.videos || []),
+    ];
+
     const uploadedFiles = [];
-    if (req.files && req.files.length > 0) {
-      for (const file of req.files) {
-        const result = await uploadToCloudinary(file.buffer, file.mimetype);
-        uploadedFiles.push({
-          url: result.secure_url,
-          mimeType: file.mimetype || 'image/jpeg',
-          resourceType: file.mimetype.startsWith('video') ? 'video' : 'image',
-        });
-      }
+    for (const file of files) {
+      const result = await uploadToCloudinary(file.buffer, file.mimetype);
+      uploadedFiles.push({
+        url: result.secure_url,
+        publicId: result.public_id,
+        mimeType: file.mimetype,
+        resourceType: file.mimetype.startsWith('video') ? 'video' : 'image',
+      });
     }
 
-    // Create property with media
+    // ✅ Create property with media
     const newProperty = await prisma.property.create({
       data: {
         title,
@@ -96,6 +103,7 @@ export const createProperty = async (req, res) => {
         images: {
           create: uploadedFiles.map((f) => ({
             url: f.url,
+            publicId: f.publicId,
             mimeType: f.mimeType,
             resourceType: f.resourceType,
           })),
@@ -115,7 +123,6 @@ export const createProperty = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
-
 
 // ======================================================
 // 🏠 GET PROPERTY BY ID
@@ -166,7 +173,7 @@ export const getPropertiesByOwner = async (req, res) => {
 
     res.status(200).json({ listings });
   } catch (error) {
-    console.error('❌ Failed to fetch properties for owner:', error);
+    console.error('❌ Failed to fetch owner properties:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -248,7 +255,7 @@ export const updateProperty = async (req, res) => {
     if (!property || property.ownerId !== ownerId)
       return res.status(403).json({ message: 'Unauthorized or property not found' });
 
-    // Handle removed images
+    // ✅ Handle image removals
     let idsToRemove = [];
     const removeImageIdsRaw = req.body?.removeImageIds;
     if (removeImageIdsRaw) {
@@ -261,50 +268,57 @@ export const updateProperty = async (req, res) => {
           .filter((id) => !isNaN(id));
       }
     }
+
     if (idsToRemove.length) {
       await prisma.propertyImage.deleteMany({
         where: { id: { in: idsToRemove }, propertyId },
       });
     }
 
-    // Upload new files to Cloudinary
-    const newImagesData = [];
-    if (req.files && req.files.length > 0) {
-      for (const file of req.files) {
-        const result = await uploadToCloudinary(file.buffer, file.mimetype);
-        newImagesData.push({
-          url: result.secure_url,
-          mimeType: file.mimetype || 'image/jpeg',
-          propertyId,
-        });
-      }
-      await prisma.propertyImage.createMany({ data: newImagesData });
+    // ✅ Upload new media
+    const files = [
+      ...(req.files?.images || []),
+      ...(req.files?.videos || []),
+    ];
+
+    const newMedia = [];
+    for (const file of files) {
+      const result = await uploadToCloudinary(file.buffer, file.mimetype);
+      newMedia.push({
+        url: result.secure_url,
+        publicId: result.public_id,
+        mimeType: file.mimetype,
+        resourceType: file.mimetype.startsWith('video') ? 'video' : 'image',
+        propertyId,
+      });
     }
 
-    // Update property fields safely
+    if (newMedia.length) await prisma.propertyImage.createMany({ data: newMedia });
+
+    // ✅ Update other fields
     const updatedProperty = await prisma.property.update({
       where: { id: propertyId },
       data: {
-        title: req.body?.title ?? property.title,
-        description: req.body?.description ?? property.description,
-        price: req.body?.price ? Number(req.body.price) : property.price,
-        location: req.body?.location ?? property.location,
-        roomType: req.body?.roomType ?? property.roomType,
+        title: req.body.title ?? property.title,
+        description: req.body.description ?? property.description,
+        price: req.body.price ? Number(req.body.price) : property.price,
+        location: req.body.location ?? property.location,
+        roomType: req.body.roomType ?? property.roomType,
         electricity:
-          req.body?.electricity !== undefined
+          req.body.electricity !== undefined
             ? req.body.electricity === true || req.body.electricity === 'true'
             : property.electricity,
         wifi:
-          req.body?.wifi !== undefined
+          req.body.wifi !== undefined
             ? req.body.wifi === true || req.body.wifi === 'true'
             : property.wifi,
         water:
-          req.body?.water !== undefined
+          req.body.water !== undefined
             ? req.body.water === true || req.body.water === 'true'
             : property.water,
-        contactEmail: req.body?.contactEmail ?? property.contactEmail,
-        contactPhone: req.body?.contactPhone ?? property.contactPhone,
-        contactWhatsapp: req.body?.contactWhatsapp ?? property.contactWhatsapp,
+        contactEmail: req.body.contactEmail ?? property.contactEmail,
+        contactPhone: req.body.contactPhone ?? property.contactPhone,
+        contactWhatsapp: req.body.contactWhatsapp ?? property.contactWhatsapp,
       },
       include: { images: true },
     });
@@ -334,10 +348,10 @@ export const deleteProperty = async (req, res) => {
     if (!property || property.ownerId !== ownerId)
       return res.status(403).json({ message: 'Unauthorized or property not found' });
 
-    // Delete related images
+    // Delete associated media
     await prisma.propertyImage.deleteMany({ where: { propertyId } });
 
-    // Delete property
+    // Delete the property
     await prisma.property.delete({ where: { id: propertyId } });
 
     res.status(200).json({ message: 'Property deleted successfully' });
@@ -346,6 +360,8 @@ export const deleteProperty = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+
+
 
 
 
