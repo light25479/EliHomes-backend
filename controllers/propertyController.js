@@ -11,6 +11,10 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+// Multer config to handle multiple files in memory
+const storage = multer.memoryStorage();
+export const upload = multer({ storage }).array('files', 20); // field name 'files', max 20 files
+
 // Helper for Cloudinary upload
 const uploadToCloudinary = (fileBuffer, mimetype) => {
   return new Promise((resolve, reject) => {
@@ -29,22 +33,16 @@ const uploadToCloudinary = (fileBuffer, mimetype) => {
   });
 };
 
-// Multer config to handle file uploads in memory
-export const upload = multer({ storage: multer.memoryStorage() });
-
-// 🔹 Helper to transform media for frontend (detect videos)
+// 🔹 Helper to transform media for frontend
 const transformMedia = (media) =>
-  media.map((item) => {
-    const isVideo = item.mimeType?.startsWith('video') || item.url?.endsWith('.mp4');
-    return {
-      id: item.id,
-      url: item.url,
-      resourceType: isVideo ? 'video' : 'image',
-    };
-  });
+  media.map((item) => ({
+    id: item.id,
+    url: item.url,
+    resourceType: item.resourceType || (item.mimeType?.startsWith('video') ? 'video' : 'image'),
+  }));
 
 // ======================================================
-// 🏡 CREATE PROPERTY 
+// 🏡 CREATE PROPERTY
 // ======================================================
 export const createProperty = async (req, res) => {
   try {
@@ -116,15 +114,13 @@ export const createProperty = async (req, res) => {
   }
 };
 
-
 // ======================================================
 // 🏠 GET PROPERTY BY ID
 // ======================================================
 export const getPropertyById = async (req, res) => {
   try {
     const propertyId = Number(req.params.id);
-    if (isNaN(propertyId))
-      return res.status(400).json({ message: 'Invalid property ID' });
+    if (isNaN(propertyId)) return res.status(400).json({ message: 'Invalid property ID' });
 
     const property = await prisma.property.findUnique({
       where: { id: propertyId },
@@ -167,66 +163,6 @@ export const getPropertiesByOwner = async (req, res) => {
     res.status(200).json({ listings });
   } catch (error) {
     console.error('❌ Failed to fetch properties for owner:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
-
-// ======================================================
-// 🔍 SEARCH PROPERTIES
-// ======================================================
-export const searchProperties = async (req, res) => {
-  try {
-    const {
-      query,
-      location,
-      roomType,
-      minPrice,
-      maxPrice,
-      electricity,
-      wifi,
-      water,
-    } = req.body;
-
-    const whereConditions = [];
-
-    if (query || location) {
-      const orConditions = [];
-      if (query)
-        orConditions.push({ title: { contains: query, mode: 'insensitive' } });
-      if (location)
-        orConditions.push({ location: { contains: location, mode: 'insensitive' } });
-      if (orConditions.length) whereConditions.push({ OR: orConditions });
-    }
-
-    if (roomType)
-      whereConditions.push({ roomType: { contains: roomType, mode: 'insensitive' } });
-
-    if (minPrice || maxPrice) {
-      const priceFilter = {};
-      if (!isNaN(Number(minPrice))) priceFilter.gte = Number(minPrice);
-      if (!isNaN(Number(maxPrice))) priceFilter.lte = Number(maxPrice);
-      if (Object.keys(priceFilter).length) whereConditions.push({ price: priceFilter });
-    }
-
-    if (electricity === true || electricity === 'true')
-      whereConditions.push({ electricity: true });
-    if (wifi === true || wifi === 'true') whereConditions.push({ wifi: true });
-    if (water === true || water === 'true') whereConditions.push({ water: true });
-
-    const properties = await prisma.property.findMany({
-      where: whereConditions.length ? { AND: whereConditions } : {},
-      include: { images: true },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    res.status(200).json({
-      properties: properties.map((prop) => ({
-        ...prop,
-        images: transformMedia(prop.images),
-      })),
-    });
-  } catch (error) {
-    console.error('❌ Failed to search properties:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -275,6 +211,7 @@ export const updateProperty = async (req, res) => {
         newImagesData.push({
           url: result.secure_url,
           mimeType: file.mimetype || 'image/jpeg',
+          resourceType: file.mimetype.startsWith('video') ? 'video' : 'image',
           propertyId,
         });
       }
@@ -346,6 +283,7 @@ export const deleteProperty = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+
 
 
 
