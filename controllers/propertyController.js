@@ -3,7 +3,7 @@ import multer from 'multer';
 import { v2 as cloudinary } from 'cloudinary';
 
 // ==================
-// ☁️ CLOUDINARY SETUP
+// 🧩 CLOUDINARY SETUP
 // ==================
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -11,9 +11,7 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// ==================
-// 📤 Helper: Upload file to Cloudinary
-// ==================
+// Helper for Cloudinary upload
 const uploadToCloudinary = (fileBuffer, mimetype) => {
   return new Promise((resolve, reject) => {
     const isVideo = mimetype?.startsWith('video/');
@@ -31,18 +29,19 @@ const uploadToCloudinary = (fileBuffer, mimetype) => {
   });
 };
 
-// ✅ Multer setup (memory storage)
+// Multer config to handle file uploads in memory
 export const upload = multer({ storage: multer.memoryStorage() });
 
-// ==================
-// 🔄 Helper: Transform media for frontend
-// ==================
+// 🔹 Helper to transform media for frontend (detect videos)
 const transformMedia = (media) =>
-  media.map((item) => ({
-    id: item.id,
-    url: item.url,
-    resourceType: item.resourceType,
-  }));
+  media.map((item) => {
+    const isVideo = item.mimeType?.startsWith('video') || item.url?.endsWith('.mp4');
+    return {
+      id: item.id,
+      url: item.url,
+      resourceType: isVideo ? 'video' : 'image',
+    };
+  });
 
 // ======================================================
 // 🏡 CREATE PROPERTY
@@ -66,25 +65,18 @@ export const createProperty = async (req, res) => {
     const ownerId = req.user?.id;
     if (!ownerId) return res.status(401).json({ message: 'Unauthorized' });
 
-    // =============================
-    // 1️⃣ Upload files to Cloudinary
-    // =============================
+    // Upload files to Cloudinary
     const uploadedFiles = [];
     if (req.files && req.files.length > 0) {
       for (const file of req.files) {
         const result = await uploadToCloudinary(file.buffer, file.mimetype);
         uploadedFiles.push({
           url: result.secure_url,
-          publicId: result.public_id,
           mimeType: file.mimetype || 'image/jpeg',
-          resourceType: file.mimetype.startsWith('video') ? 'video' : 'image',
         });
       }
     }
 
-    // =============================
-    // 2️⃣ Save property in database
-    // =============================
     const newProperty = await prisma.property.create({
       data: {
         title,
@@ -100,11 +92,7 @@ export const createProperty = async (req, res) => {
         contactPhone: contactPhone || null,
         contactWhatsapp: contactWhatsapp || null,
         images: {
-          create: uploadedFiles.map((f) => ({
-            url: f.url,
-            publicId: f.publicId,
-            resourceType: f.resourceType,
-          })),
+          create: uploadedFiles,
         },
       },
       include: { images: true },
@@ -123,32 +111,74 @@ export const createProperty = async (req, res) => {
 };
 
 // ======================================================
-// 🏠 GET PROPERTY BY ID
+// 🏠 GET PROPERTY BY ID (CONTACTS LOCKED VIA PAYMENT)
 // ======================================================
 export const getPropertyById = async (req, res) => {
   try {
     const propertyId = Number(req.params.id);
-    if (isNaN(propertyId))
+    if (isNaN(propertyId)) {
       return res.status(400).json({ message: 'Invalid property ID' });
+    }
 
     const property = await prisma.property.findUnique({
       where: { id: propertyId },
       include: { images: true },
     });
 
-    if (!property) return res.status(404).json({ message: 'Property not found' });
+    if (!property) {
+      return res.status(404).json({ message: 'Property not found' });
+    }
 
-    res.status(200).json({
-      property: {
-        ...property,
-        images: transformMedia(property.images),
+    const userId = req.user?.id;
+
+    // 🔐 Check contact access (payment-based)
+   const phone = req.headers['x-contact-phone'];
+
+let hasAccess = false;
+
+if (phone) {
+  const access = await prisma.contactAccess.findUnique({
+    where: {
+      propertyId_phone: {
+        propertyId,
+        phone,
       },
-    });
+    },
+  });
+
+  hasAccess = !!access;
+}
+
+
+    // 🧼 Base response (NO CONTACTS)
+    const response = {
+      id: property.id,
+      title: property.title,
+      description: property.description,
+      price: property.price,
+      location: property.location,
+      roomType: property.roomType,
+      electricity: property.electricity,
+      wifi: property.wifi,
+      water: property.water,
+      createdAt: property.createdAt,
+      images: transformMedia(property.images),
+    };
+
+    // ✅ Attach contacts ONLY if access exists
+    if (hasAccess) {
+      response.contactEmail = property.contactEmail;
+      response.contactPhone = property.contactPhone;
+      response.contactWhatsapp = property.contactWhatsapp;
+    }
+
+    res.status(200).json({ property: response });
   } catch (error) {
     console.error('❌ Failed to fetch property:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+
 
 // ======================================================
 // 👤 GET PROPERTIES BY OWNER
@@ -164,14 +194,14 @@ export const getPropertiesByOwner = async (req, res) => {
       orderBy: { createdAt: 'desc' },
     });
 
-    res.status(200).json({
-      listings: properties.map((p) => ({
-        ...p,
-        images: transformMedia(p.images),
-      })),
-    });
+    const listings = properties.map((prop) => ({
+      ...prop,
+      images: transformMedia(prop.images),
+    }));
+
+    res.status(200).json({ listings });
   } catch (error) {
-    console.error('❌ Failed to fetch owner properties:', error);
+    console.error('❌ Failed to fetch properties for owner:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -192,41 +222,42 @@ export const searchProperties = async (req, res) => {
       water,
     } = req.body;
 
-    const where = {};
+    const whereConditions = [];
 
-    // Text search: query OR location
     if (query || location) {
       const orConditions = [];
-      if (query) orConditions.push({ title: { contains: query, mode: 'insensitive' } });
-      if (location) orConditions.push({ location: { contains: location, mode: 'insensitive' } });
-      if (orConditions.length) where.OR = orConditions;
+      if (query)
+        orConditions.push({ title: { contains: query, mode: 'insensitive' } });
+      if (location)
+        orConditions.push({ location: { contains: location, mode: 'insensitive' } });
+      if (orConditions.length) whereConditions.push({ OR: orConditions });
     }
 
-    // Exact match for room type
-    if (roomType) where.roomType = roomType;
+    if (roomType)
+      whereConditions.push({ roomType: { contains: roomType, mode: 'insensitive' } });
 
-    // Price filters
     if (minPrice || maxPrice) {
-      where.price = {};
-      if (minPrice) where.price.gte = Number(minPrice);
-      if (maxPrice) where.price.lte = Number(maxPrice);
+      const priceFilter = {};
+      if (!isNaN(Number(minPrice))) priceFilter.gte = Number(minPrice);
+      if (!isNaN(Number(maxPrice))) priceFilter.lte = Number(maxPrice);
+      if (Object.keys(priceFilter).length) whereConditions.push({ price: priceFilter });
     }
 
-    // Boolean amenities: only filter if true
-    if (electricity === true || electricity === 'true') where.electricity = true;
-    if (wifi === true || wifi === 'true') where.wifi = true;
-    if (water === true || water === 'true') where.water = true;
+    if (electricity === true || electricity === 'true')
+      whereConditions.push({ electricity: true });
+    if (wifi === true || wifi === 'true') whereConditions.push({ wifi: true });
+    if (water === true || water === 'true') whereConditions.push({ water: true });
 
     const properties = await prisma.property.findMany({
-      where,
+      where: whereConditions.length ? { AND: whereConditions } : {},
       include: { images: true },
       orderBy: { createdAt: 'desc' },
     });
 
     res.status(200).json({
-      properties: properties.map((p) => ({
-        ...p,
-        images: transformMedia(p.images),
+      properties: properties.map((prop) => ({
+        ...prop,
+        images: transformMedia(prop.images),
       })),
     });
   } catch (error) {
@@ -242,7 +273,6 @@ export const updateProperty = async (req, res) => {
   try {
     const propertyId = Number(req.params.id);
     const ownerId = req.user?.id;
-
     if (!ownerId) return res.status(401).json({ message: 'Unauthorized' });
 
     const property = await prisma.property.findUnique({
@@ -251,62 +281,65 @@ export const updateProperty = async (req, res) => {
     });
 
     if (!property || property.ownerId !== ownerId)
-      return res.status(403).json({ message: 'Forbidden' });
+      return res.status(403).json({ message: 'Unauthorized or property not found' });
 
-    // Delete removed images if provided
+    // Handle removed images
     let idsToRemove = [];
-    if (req.body?.removeImageIds) {
-      idsToRemove = req.body.removeImageIds
-        .split(',')
-        .map((id) => Number(id))
-        .filter((id) => !isNaN(id));
+    const removeImageIdsRaw = req.body?.removeImageIds;
+    if (removeImageIdsRaw) {
+      if (Array.isArray(removeImageIdsRaw)) {
+        idsToRemove = removeImageIdsRaw.map((id) => Number(id)).filter((id) => !isNaN(id));
+      } else if (typeof removeImageIdsRaw === 'string') {
+        idsToRemove = removeImageIdsRaw
+          .split(',')
+          .map((id) => Number(id))
+          .filter((id) => !isNaN(id));
+      }
     }
-
     if (idsToRemove.length) {
       await prisma.propertyImage.deleteMany({
         where: { id: { in: idsToRemove }, propertyId },
       });
     }
 
-    // Upload new files
-    const uploaded = [];
+    // Upload new files to Cloudinary
+    const newImagesData = [];
     if (req.files && req.files.length > 0) {
       for (const file of req.files) {
         const result = await uploadToCloudinary(file.buffer, file.mimetype);
-        uploaded.push({
+        newImagesData.push({
           url: result.secure_url,
-          publicId: result.public_id,
-          resourceType: file.mimetype.startsWith('video') ? 'video' : 'image',
+          mimeType: file.mimetype || 'image/jpeg',
           propertyId,
         });
       }
-      await prisma.propertyImage.createMany({ data: uploaded });
+      await prisma.propertyImage.createMany({ data: newImagesData });
     }
 
-    // Update property
+    // Update property fields safely
     const updatedProperty = await prisma.property.update({
       where: { id: propertyId },
       data: {
-        title: req.body.title ?? property.title,
-        description: req.body.description ?? property.description,
-        price: req.body.price ? Number(req.body.price) : property.price,
-        location: req.body.location ?? property.location,
-        roomType: req.body.roomType ?? property.roomType,
+        title: req.body?.title ?? property.title,
+        description: req.body?.description ?? property.description,
+        price: req.body?.price ? Number(req.body.price) : property.price,
+        location: req.body?.location ?? property.location,
+        roomType: req.body?.roomType ?? property.roomType,
         electricity:
-          req.body.electricity !== undefined
-            ? req.body.electricity === 'true' || req.body.electricity === true
+          req.body?.electricity !== undefined
+            ? req.body.electricity === true || req.body.electricity === 'true'
             : property.electricity,
         wifi:
-          req.body.wifi !== undefined
-            ? req.body.wifi === 'true' || req.body.wifi === true
+          req.body?.wifi !== undefined
+            ? req.body.wifi === true || req.body.wifi === 'true'
             : property.wifi,
         water:
-          req.body.water !== undefined
-            ? req.body.water === 'true' || req.body.water === true
+          req.body?.water !== undefined
+            ? req.body.water === true || req.body.water === 'true'
             : property.water,
-        contactEmail: req.body.contactEmail ?? property.contactEmail,
-        contactPhone: req.body.contactPhone ?? property.contactPhone,
-        contactWhatsapp: req.body.contactWhatsapp ?? property.contactWhatsapp,
+        contactEmail: req.body?.contactEmail ?? property.contactEmail,
+        contactPhone: req.body?.contactPhone ?? property.contactPhone,
+        contactWhatsapp: req.body?.contactWhatsapp ?? property.contactWhatsapp,
       },
       include: { images: true },
     });
@@ -330,30 +363,16 @@ export const deleteProperty = async (req, res) => {
   try {
     const propertyId = Number(req.params.id);
     const ownerId = req.user?.id;
-
     if (!ownerId) return res.status(401).json({ message: 'Unauthorized' });
 
-    const property = await prisma.property.findUnique({
-      where: { id: propertyId },
-      include: { images: true },
-    });
-
+    const property = await prisma.property.findUnique({ where: { id: propertyId } });
     if (!property || property.ownerId !== ownerId)
-      return res.status(403).json({ message: 'Unauthorized or not found' });
+      return res.status(403).json({ message: 'Unauthorized or property not found' });
 
-    // Delete from Cloudinary
-    for (const img of property.images) {
-      try {
-        await cloudinary.uploader.destroy(img.publicId, {
-          resource_type: img.resourceType === 'video' ? 'video' : 'image',
-        });
-      } catch (err) {
-        console.warn('⚠️ Cloudinary delete failed for:', img.publicId);
-      }
-    }
-
-    // Delete DB records
+    // Delete related images
     await prisma.propertyImage.deleteMany({ where: { propertyId } });
+
+    // Delete property
     await prisma.property.delete({ where: { id: propertyId } });
 
     res.status(200).json({ message: 'Property deleted successfully' });
@@ -362,26 +381,7 @@ export const deleteProperty = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
-// ======================================================
-// 🔹 GET DISTINCT ROOM TYPES
-// ======================================================
-export const getRoomTypes = async (req, res) => {
-  try {
-    const roomTypes = await prisma.property.findMany({
-      select: { roomType: true },
-      where: { roomType: { not: null } },
-      distinct: ['roomType'],
-      orderBy: { roomType: 'asc' },
-    });
 
-    res.status(200).json({
-      roomTypes: roomTypes.map(rt => rt.roomType),
-    });
-  } catch (error) {
-    console.error('❌ Failed to fetch room types:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
 
 
 
