@@ -127,3 +127,55 @@ router.post('/initiate-payment', authMiddleware, async (req, res) => {
 router.post('/callback', handleMpesaCallback);
 
 export default router;
+// POST /api/mpesa/unlock-contacts
+router.post('/unlock-contacts', async (req, res) => {
+  const { phoneNumber, propertyId } = req.body;
+
+  if (!phoneNumber || !propertyId) {
+    return res.status(400).json({ message: 'Phone and propertyId are required' });
+  }
+
+  const normalizedPhone = normalizePhoneNumber(phoneNumber);
+  const amount = 50;
+
+  try {
+    const now = new Date();
+    const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(
+      now.getDate()
+    ).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(
+      now.getSeconds()
+    ).padStart(2, '0')}`;
+
+    const password = Buffer.from(`${MPESA_SHORTCODE}${MPESA_PASSKEY}${timestamp}`).toString('base64');
+    const accessToken = await getAccessToken();
+
+    const response = await axios.post(
+      'https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest',
+      {
+        BusinessShortCode: MPESA_SHORTCODE,
+        Password: password,
+        Timestamp: timestamp,
+        TransactionType: 'CustomerPayBillOnline',
+        Amount: amount,
+        PartyA: normalizedPhone,
+        PartyB: MPESA_SHORTCODE,
+        PhoneNumber: normalizedPhone,
+        CallBackURL: CALLBACK_URL,
+        AccountReference: `CONTACT-${propertyId}`,
+        TransactionDesc: 'Unlock Property Contacts',
+      },
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+
+    res.json({
+      message: 'STK Push sent',
+      checkoutRequestId: response.data.CheckoutRequestID,
+    });
+  } catch (err) {
+    console.error('Unlock payment error:', err?.response?.data || err.message);
+    res.status(500).json({ message: 'Failed to initiate payment' });
+  }
+});
+
