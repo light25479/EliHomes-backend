@@ -2,9 +2,6 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-/**
- * Handles M-Pesa STK Push callback from Safaricom
- */
 export const handleMpesaCallback = async (req, res) => {
   try {
     const callback = req.body?.Body?.stkCallback;
@@ -14,15 +11,55 @@ export const handleMpesaCallback = async (req, res) => {
     }
 
     const {
-      MerchantRequestID,
       CheckoutRequestID,
       ResultCode,
       ResultDesc,
       CallbackMetadata,
     } = callback;
 
-    console.log('📥 Received M-Pesa Callback:', JSON.stringify(callback, null, 2));
+    console.log('📥 M-Pesa Callback:', JSON.stringify(callback, null, 2));
 
+    const items = CallbackMetadata?.Item || [];
+    const receiptItem = items.find(i => i.Name === 'MpesaReceiptNumber');
+    const phoneItem = items.find(i => i.Name === 'PhoneNumber');
+    const accountItem = items.find(i => i.Name === 'AccountReference');
+
+    const mpesaReceiptNumber = receiptItem?.Value || 'UNKNOWN';
+    const phone = phoneItem?.Value?.toString();
+    const accountRef = accountItem?.Value;
+
+    /* =====================================================
+       1️⃣ CONTACT UNLOCK PAYMENT (Ksh 50)
+    ====================================================== */
+    if (accountRef?.startsWith('CONTACT-')) {
+      const propertyId = Number(accountRef.replace('CONTACT-', ''));
+
+      if (ResultCode === 0 && propertyId && phone) {
+        await prisma.contactAccess.upsert({
+          where: {
+            userId_propertyId: {
+              userId: phone, // phone-based access
+              propertyId,
+            },
+          },
+          update: {},
+          create: {
+            userId: phone,
+            propertyId,
+          },
+        });
+
+        console.log('✅ Contact unlocked for property:', propertyId);
+
+        return res.json({ message: 'Contact access granted' });
+      }
+
+      return res.json({ message: `Contact unlock failed: ${ResultDesc}` });
+    }
+
+    /* =====================================================
+       2️⃣ RENT PAYMENT
+    ====================================================== */
     let payment = await prisma.rentPayment.findFirst({
       where: {
         mpesaCheckoutRequestID: CheckoutRequestID,
@@ -47,14 +84,6 @@ export const handleMpesaCallback = async (req, res) => {
     }
 
     if (ResultCode === 0) {
-      const items = CallbackMetadata?.Item || [];
-
-      const amountItem = items.find(item => item.Name === 'Amount');
-      const receiptItem = items.find(item => item.Name === 'MpesaReceiptNumber');
-
-      const amount = amountItem?.Value ?? payment.amount;
-      const mpesaReceiptNumber = receiptItem?.Value ?? 'UNKNOWN';
-
       const updateData = {
         status: 'completed',
         paidAt: new Date(),
@@ -73,7 +102,7 @@ export const handleMpesaCallback = async (req, res) => {
         });
       }
 
-      return res.status(200).json({ message: '✅ Payment successful and updated' });
+      return res.json({ message: 'Payment completed' });
     } else {
       const updateData = {
         status: 'failed',
@@ -92,10 +121,12 @@ export const handleMpesaCallback = async (req, res) => {
         });
       }
 
-      return res.status(200).json({ message: `❌ Payment failed: ${ResultDesc}` });
+      return res.json({ message: `Payment failed: ${ResultDesc}` });
     }
   } catch (error) {
-    console.error('⚠️ M-Pesa callback error:', error);
-    res.status(500).json({ message: 'Server error handling callback', error });
+    console.error('⚠️ Callback error:', error);
+    res.status(500).json({ message: 'Callback handling failed' });
   }
 };
+
+
