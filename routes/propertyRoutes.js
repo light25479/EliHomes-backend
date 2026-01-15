@@ -1,3 +1,4 @@
+// ✅ propertyRoutes.js
 import express from 'express';
 import multer from 'multer';
 import {
@@ -10,41 +11,34 @@ import {
 } from '../controllers/propertyController.js';
 import authMiddleware from '../middleware/auth.js';
 import { checkPaymentOptional } from '../middleware/paymentCheck.js';
-import { getRoomTypes } from '../controllers/propertyController.js';
+
 const router = express.Router();
 
-// ✅ Setup Multer for handling multiple uploads in memory
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
-// ✅ Upload + Create Property (frontend sends all files under 'files')
+// ✅ Accept both images and videos
+const uploadFields = upload.fields([
+  { name: 'images', maxCount: 10 },
+  { name: 'videos', maxCount: 5 },
+]);
+
 router.post(
   '/',
   authMiddleware,
   checkPaymentOptional('LISTING'),
-  upload.array('files', 20), // <--- Accept up to 20 files (images or videos)
+  uploadFields,
   createProperty
 );
 
-// ✅ Owner-specific properties
 router.get('/owner', authMiddleware, getPropertiesByOwner);
-router.get('/room-types', getRoomTypes);
-// ✅ Update Property (also accepts 'files')
-router.put(
-  '/:id',
-  authMiddleware,
-  upload.array('files', 20), // same here for consistency
-  updateProperty
-);
-
-// ✅ Delete Property
+router.put('/:id', authMiddleware, uploadFields, updateProperty);
 router.delete('/:id', authMiddleware, deleteProperty);
-
-// ✅ Public routes
 router.post('/search', searchProperties);
 router.get('/:id', getPropertyById);
 
 export default router;
+
 
 
 
