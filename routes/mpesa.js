@@ -1,6 +1,5 @@
 import express from 'express';
 import axios from 'axios';
-import authMiddleware from '../middleware/auth.js';
 import prisma from '../lib/prisma.js';
 import { handleMpesaCallback } from '../controllers/mpesaController.js';
 
@@ -12,11 +11,19 @@ const MPESA_CONSUMER_KEY = process.env.MPESA_CONSUMER_KEY;
 const MPESA_CONSUMER_SECRET = process.env.MPESA_CONSUMER_SECRET;
 const CALLBACK_URL = process.env.MPESA_CALLBACK_URL;
 
-if (!MPESA_SHORTCODE || !MPESA_PASSKEY || !MPESA_CONSUMER_KEY || !MPESA_CONSUMER_SECRET || !CALLBACK_URL) {
+if (
+  !MPESA_SHORTCODE ||
+  !MPESA_PASSKEY ||
+  !MPESA_CONSUMER_KEY ||
+  !MPESA_CONSUMER_SECRET ||
+  !CALLBACK_URL
+) {
   throw new Error('Missing required M-Pesa environment variables');
 }
 
-// Normalize phone number to format: 2547XXXXXXXX
+/* ================================
+   Normalize phone number
+================================ */
 const normalizePhoneNumber = (phone) => {
   if (!phone) return null;
   if (phone.startsWith('+')) phone = phone.slice(1);
@@ -25,7 +32,9 @@ const normalizePhoneNumber = (phone) => {
   return `254${phone}`;
 };
 
-// Get M-Pesa Access Token
+/* ================================
+   Get M-Pesa Access Token
+================================ */
 const getAccessToken = async () => {
   const response = await axios.get(
     'https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials',
@@ -36,43 +45,38 @@ const getAccessToken = async () => {
       },
     }
   );
+
   return response.data.access_token;
 };
 
-// GET /api/mpesa/payment-status
-router.get('/payment-status', authMiddleware, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const payment = await prisma.listingPayment.findFirst({
-      where: { userId, paid: true },
-    });
-    res.json({ hasPaid: !!payment });
-  } catch (err) {
-    console.error('Check Payment Status Error:', err);
-    res.status(500).json({ message: 'Failed to check payment status' });
-  }
-});
-
-// POST /api/mpesa/initiate-payment (non-blocking for now)
-router.post('/initiate-payment', authMiddleware, async (req, res) => {
-  const { phoneNumber } = req.body;
-  const userId = req.user.id;
+/* =====================================================
+   1️⃣ LISTING PAYMENT (LOGIN OPTIONAL)
+===================================================== */
+router.post('/initiate-payment', async (req, res) => {
+  const { phoneNumber, userId } = req.body;
 
   try {
     const normalizedPhone = normalizePhoneNumber(phoneNumber);
     if (!normalizedPhone) {
-      return res.status(200).json({ message: 'Invalid phone number, but property can still be listed.' });
+      return res.status(400).json({ message: 'Invalid phone number' });
     }
 
     const amount = 200;
-    const now = new Date();
-    const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(
-      now.getDate()
-    ).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(
-      now.getSeconds()
-    ).padStart(2, '0')}`;
 
-    const password = Buffer.from(`${MPESA_SHORTCODE}${MPESA_PASSKEY}${timestamp}`).toString('base64');
+    const now = new Date();
+    const timestamp = `${now.getFullYear()}${String(
+      now.getMonth() + 1
+    ).padStart(2, '0')}${String(now.getDate()).padStart(
+      2,
+      '0'
+    )}${String(now.getHours()).padStart(2, '0')}${String(
+      now.getMinutes()
+    ).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+
+    const password = Buffer.from(
+      `${MPESA_SHORTCODE}${MPESA_PASSKEY}${timestamp}`
+    ).toString('base64');
+
     const accessToken = await getAccessToken();
 
     const response = await axios.post(
@@ -87,7 +91,9 @@ router.post('/initiate-payment', authMiddleware, async (req, res) => {
         PartyB: MPESA_SHORTCODE,
         PhoneNumber: normalizedPhone,
         CallBackURL: CALLBACK_URL,
-        AccountReference: `Listing-${userId}`,
+        AccountReference: userId
+          ? `LISTING-${userId}`
+          : `GUEST-LISTING`,
         TransactionDesc: 'EliHomes Listing Payment',
       },
       {
@@ -97,11 +103,11 @@ router.post('/initiate-payment', authMiddleware, async (req, res) => {
       }
     );
 
-    const { CheckoutRequestID, MerchantRequestID } = response.data || {};
+    const { CheckoutRequestID } = response.data || {};
 
     await prisma.listingPayment.create({
       data: {
-        userId,
+        userId: userId || null,
         amount,
         phone: normalizedPhone,
         mpesaCheckoutRequestID: CheckoutRequestID || 'MISSING-ID',
@@ -109,44 +115,46 @@ router.post('/initiate-payment', authMiddleware, async (req, res) => {
       },
     });
 
-    res.status(200).json({
-      message: '✅ Payment initiated. You can proceed to list your property.',
-      CheckoutRequestID,
-      MerchantRequestID,
+    res.json({
+      message: 'STK Push sent successfully',
+      checkoutRequestId: CheckoutRequestID,
     });
   } catch (err) {
-    console.error('❌ Payment initiation failed, but property creation allowed:', err?.response?.data || err.message);
-
-    res.status(200).json({
-      message: '⚠️ Payment failed or unavailable. You may still proceed to list your property.',
-    });
+    console.error('❌ Listing payment error:', err?.response?.data || err.message);
+    res.status(500).json({ message: 'Failed to initiate payment' });
   }
 });
 
-// POST /api/mpesa/callback
-router.post('/callback', handleMpesaCallback);
-
-export default router;
-// POST /api/mpesa/unlock-contacts
+/* =====================================================
+   2️⃣ CONTACT UNLOCK (NO LOGIN REQUIRED)
+===================================================== */
 router.post('/unlock-contacts', async (req, res) => {
   const { phoneNumber, propertyId } = req.body;
 
   if (!phoneNumber || !propertyId) {
-    return res.status(400).json({ message: 'Phone and propertyId are required' });
+    return res
+      .status(400)
+      .json({ message: 'Phone and propertyId are required' });
   }
 
-  const normalizedPhone = normalizePhoneNumber(phoneNumber);
-  const amount = 50;
-
   try {
-    const now = new Date();
-    const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(
-      now.getDate()
-    ).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(
-      now.getSeconds()
-    ).padStart(2, '0')}`;
+    const normalizedPhone = normalizePhoneNumber(phoneNumber);
+    const amount = 50;
 
-    const password = Buffer.from(`${MPESA_SHORTCODE}${MPESA_PASSKEY}${timestamp}`).toString('base64');
+    const now = new Date();
+    const timestamp = `${now.getFullYear()}${String(
+      now.getMonth() + 1
+    ).padStart(2, '0')}${String(now.getDate()).padStart(
+      2,
+      '0'
+    )}${String(now.getHours()).padStart(2, '0')}${String(
+      now.getMinutes()
+    ).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+
+    const password = Buffer.from(
+      `${MPESA_SHORTCODE}${MPESA_PASSKEY}${timestamp}`
+    ).toString('base64');
+
     const accessToken = await getAccessToken();
 
     const response = await axios.post(
@@ -165,7 +173,9 @@ router.post('/unlock-contacts', async (req, res) => {
         TransactionDesc: 'Unlock Property Contacts',
       },
       {
-        headers: { Authorization: `Bearer ${accessToken}` },
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
       }
     );
 
@@ -174,8 +184,16 @@ router.post('/unlock-contacts', async (req, res) => {
       checkoutRequestId: response.data.CheckoutRequestID,
     });
   } catch (err) {
-    console.error('Unlock payment error:', err?.response?.data || err.message);
+    console.error('❌ Unlock contact error:', err?.response?.data || err.message);
     res.status(500).json({ message: 'Failed to initiate payment' });
   }
 });
+
+/* =====================================================
+   3️⃣ CALLBACK
+===================================================== */
+router.post('/callback', handleMpesaCallback);
+
+export default router;
+
 
