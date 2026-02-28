@@ -111,7 +111,7 @@ export const createProperty = async (req, res) => {
 };
 
 // ======================================================
-// 🏠 GET PROPERTY BY ID (CONTACTS LOCKED VIA PAYMENT)
+// GET PROPERTY BY ID (CONTACTS LOCKED)
 // ======================================================
 export const getPropertyById = async (req, res) => {
   try {
@@ -129,28 +129,22 @@ export const getPropertyById = async (req, res) => {
       return res.status(404).json({ message: 'Property not found' });
     }
 
-    const userId = req.user?.id;
+    const phone = req.headers['x-contact-phone'];
+    let hasAccess = false;
 
-    // 🔐 Check contact access (payment-based)
-   const phone = req.headers['x-contact-phone'];
+    if (phone) {
+      const access = await prisma.contactAccess.findUnique({
+        where: {
+          propertyId_phone: {
+            propertyId,
+            phone,
+          },
+        },
+      });
 
-let hasAccess = false;
+      hasAccess = !!access;
+    }
 
-if (phone) {
-  const access = await prisma.contactAccess.findUnique({
-    where: {
-      propertyId_phone: {
-        propertyId,
-        phone,
-      },
-    },
-  });
-
-  hasAccess = !!access;
-}
-
-
-    // 🧼 Base response (NO CONTACTS)
     const response = {
       id: property.id,
       title: property.title,
@@ -165,7 +159,6 @@ if (phone) {
       images: transformMedia(property.images),
     };
 
-    // ✅ Attach contacts ONLY if access exists
     if (hasAccess) {
       response.contactEmail = property.contactEmail;
       response.contactPhone = property.contactPhone;
@@ -175,7 +168,7 @@ if (phone) {
     res.status(200).json({ property: response });
   } catch (error) {
     console.error('❌ Failed to fetch property:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ message: 'Server error' });
   }
 };
 
@@ -381,6 +374,7 @@ export const deleteProperty = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+
 
 
 
