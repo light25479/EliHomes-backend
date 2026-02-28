@@ -26,7 +26,7 @@ export const handleMpesaCallback = async (req, res) => {
 
     const mpesaReceiptNumber = receiptItem?.Value || 'UNKNOWN';
     const phone = phoneItem?.Value?.toString();
-    const accountRef = accountItem?.Value;
+    const accountRef = accountItem?.Value?.toString();
 
     /* =====================================================
        1️⃣ CONTACT UNLOCK PAYMENT (Ksh 50)
@@ -37,19 +37,19 @@ export const handleMpesaCallback = async (req, res) => {
       if (ResultCode === 0 && propertyId && phone) {
         await prisma.contactAccess.upsert({
           where: {
-            userId_propertyId: {
-              userId: phone, // phone-based access
+            propertyId_phone: {
               propertyId,
+              phone,
             },
           },
-          update: {},
+          update: {}, // already unlocked? do nothing
           create: {
-            userId: phone,
             propertyId,
+            phone,
           },
         });
 
-        console.log('✅ Contact unlocked for property:', propertyId);
+        console.log(`✅ Contact unlocked for property ${propertyId} by ${phone}`);
 
         return res.json({ message: 'Contact access granted' });
       }
@@ -58,8 +58,9 @@ export const handleMpesaCallback = async (req, res) => {
     }
 
     /* =====================================================
-       2️⃣ RENT PAYMENT
+       2️⃣ RENT / LISTING PAYMENTS
     ====================================================== */
+
     let payment = await prisma.rentPayment.findFirst({
       where: {
         mpesaCheckoutRequestID: CheckoutRequestID,
@@ -123,10 +124,12 @@ export const handleMpesaCallback = async (req, res) => {
 
       return res.json({ message: `Payment failed: ${ResultDesc}` });
     }
+
   } catch (error) {
     console.error('⚠️ Callback error:', error);
     res.status(500).json({ message: 'Callback handling failed' });
   }
 };
+
 
 
