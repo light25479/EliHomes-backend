@@ -111,7 +111,7 @@ export const createProperty = async (req, res) => {
 };
 
 // ======================================================
-// 🏠 GET PROPERTY BY ID (CONTACTS LOCKED VIA PAYMENT)
+// 🏠 GET PROPERTY BY ID (CONTACTS ALWAYS VISIBLE)
 // ======================================================
 export const getPropertyById = async (req, res) => {
   try {
@@ -129,28 +129,6 @@ export const getPropertyById = async (req, res) => {
       return res.status(404).json({ message: 'Property not found' });
     }
 
-    const userId = req.user?.id;
-
-    // 🔐 Check contact access (payment-based)
-   const phone = req.headers['x-contact-phone'];
-
-let hasAccess = false;
-
-if (phone) {
-  const access = await prisma.contactAccess.findUnique({
-    where: {
-      propertyId_phone: {
-        propertyId,
-        phone,
-      },
-    },
-  });
-
-  hasAccess = !!access;
-}
-
-
-    // 🧼 Base response (NO CONTACTS)
     const response = {
       id: property.id,
       title: property.title,
@@ -163,14 +141,12 @@ if (phone) {
       water: property.water,
       createdAt: property.createdAt,
       images: transformMedia(property.images),
-    };
 
-    // ✅ Attach contacts ONLY if access exists
-    if (hasAccess) {
-      response.contactEmail = property.contactEmail;
-      response.contactPhone = property.contactPhone;
-      response.contactWhatsapp = property.contactWhatsapp;
-    }
+      // Contacts always visible
+      contactEmail: property.contactEmail,
+      contactPhone: property.contactPhone,
+      contactWhatsapp: property.contactWhatsapp,
+    };
 
     res.status(200).json({ property: response });
   } catch (error) {
@@ -178,7 +154,6 @@ if (phone) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
-
 
 // ======================================================
 // 👤 GET PROPERTIES BY OWNER
