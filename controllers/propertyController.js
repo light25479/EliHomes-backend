@@ -67,8 +67,11 @@ export const createProperty = async (req, res) => {
 
     // Upload files to Cloudinary
     const uploadedFiles = [];
-    if (req.files && req.files.length > 0) {
-      for (const file of req.files) {
+    if (req.files) {
+      // Handle both images and videos from Multer fields
+      const filesArray = [...(req.files['images'] || []), ...(req.files['videos'] || [])];
+
+      for (const file of filesArray) {
         const result = await uploadToCloudinary(file.buffer, file.mimetype);
         uploadedFiles.push({
           url: result.secure_url,
@@ -111,44 +114,40 @@ export const createProperty = async (req, res) => {
 };
 
 // ======================================================
-// 🏠 GET PROPERTY BY ID (CONTACTS ALWAYS VISIBLE)
+// 🏠 GET PROPERTY BY ID
 // ======================================================
 export const getPropertyById = async (req, res) => {
   try {
     const propertyId = Number(req.params.id);
-    if (isNaN(propertyId)) {
-      return res.status(400).json({ message: 'Invalid property ID' });
-    }
+    if (isNaN(propertyId)) return res.status(400).json({ message: 'Invalid property ID' });
 
     const property = await prisma.property.findUnique({
       where: { id: propertyId },
       include: { images: true },
     });
 
-    if (!property) {
-      return res.status(404).json({ message: 'Property not found' });
-    }
+    if (!property) return res.status(404).json({ message: 'Property not found' });
 
-    const response = {
-      id: property.id,
-      title: property.title,
-      description: property.description,
-      price: property.price,
-      location: property.location,
-      roomType: property.roomType,
-      electricity: property.electricity,
-      wifi: property.wifi,
-      water: property.water,
-      createdAt: property.createdAt,
-      images: transformMedia(property.images),
+    res.status(200).json({
+      property: {
+        id: property.id,
+        title: property.title,
+        description: property.description,
+        price: property.price,
+        location: property.location,
+        roomType: property.roomType,
+        electricity: property.electricity,
+        wifi: property.wifi,
+        water: property.water,
+        createdAt: property.createdAt,
+        images: transformMedia(property.images),
 
-      // Contacts always visible
-      contactEmail: property.contactEmail,
-      contactPhone: property.contactPhone,
-      contactWhatsapp: property.contactWhatsapp,
-    };
-
-    res.status(200).json({ property: response });
+        // Contacts always visible
+        contactEmail: property.contactEmail,
+        contactPhone: property.contactPhone,
+        contactWhatsapp: property.contactWhatsapp,
+      },
+    });
   } catch (error) {
     console.error('❌ Failed to fetch property:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -186,30 +185,18 @@ export const getPropertiesByOwner = async (req, res) => {
 // ======================================================
 export const searchProperties = async (req, res) => {
   try {
-    const {
-      query,
-      location,
-      roomType,
-      minPrice,
-      maxPrice,
-      electricity,
-      wifi,
-      water,
-    } = req.body;
+    const { query, location, roomType, minPrice, maxPrice, electricity, wifi, water } = req.body;
 
     const whereConditions = [];
 
     if (query || location) {
       const orConditions = [];
-      if (query)
-        orConditions.push({ title: { contains: query, mode: 'insensitive' } });
-      if (location)
-        orConditions.push({ location: { contains: location, mode: 'insensitive' } });
+      if (query) orConditions.push({ title: { contains: query, mode: 'insensitive' } });
+      if (location) orConditions.push({ location: { contains: location, mode: 'insensitive' } });
       if (orConditions.length) whereConditions.push({ OR: orConditions });
     }
 
-    if (roomType)
-      whereConditions.push({ roomType: { contains: roomType, mode: 'insensitive' } });
+    if (roomType) whereConditions.push({ roomType: { contains: roomType, mode: 'insensitive' } });
 
     if (minPrice || maxPrice) {
       const priceFilter = {};
@@ -218,8 +205,7 @@ export const searchProperties = async (req, res) => {
       if (Object.keys(priceFilter).length) whereConditions.push({ price: priceFilter });
     }
 
-    if (electricity === true || electricity === 'true')
-      whereConditions.push({ electricity: true });
+    if (electricity === true || electricity === 'true') whereConditions.push({ electricity: true });
     if (wifi === true || wifi === 'true') whereConditions.push({ wifi: true });
     if (water === true || water === 'true') whereConditions.push({ water: true });
 
@@ -272,15 +258,14 @@ export const updateProperty = async (req, res) => {
       }
     }
     if (idsToRemove.length) {
-      await prisma.propertyImage.deleteMany({
-        where: { id: { in: idsToRemove }, propertyId },
-      });
+      await prisma.propertyImage.deleteMany({ where: { id: { in: idsToRemove }, propertyId } });
     }
 
     // Upload new files to Cloudinary
     const newImagesData = [];
-    if (req.files && req.files.length > 0) {
-      for (const file of req.files) {
+    if (req.files) {
+      const filesArray = [...(req.files['images'] || []), ...(req.files['videos'] || [])];
+      for (const file of filesArray) {
         const result = await uploadToCloudinary(file.buffer, file.mimetype);
         newImagesData.push({
           url: result.secure_url,
@@ -288,7 +273,7 @@ export const updateProperty = async (req, res) => {
           propertyId,
         });
       }
-      await prisma.propertyImage.createMany({ data: newImagesData });
+      if (newImagesData.length) await prisma.propertyImage.createMany({ data: newImagesData });
     }
 
     // Update property fields safely
