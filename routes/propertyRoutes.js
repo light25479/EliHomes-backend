@@ -1,4 +1,3 @@
-// ✅ propertyRoutes.js
 import express from 'express';
 import multer from 'multer';
 import {
@@ -14,15 +13,17 @@ import { checkPaymentOptional } from '../middleware/paymentCheck.js';
 
 const router = express.Router();
 
+// Multer memory storage
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
-// ✅ Accept both images and videos
+// Accept both images and videos
 const uploadFields = upload.fields([
   { name: 'images', maxCount: 10 },
   { name: 'videos', maxCount: 5 },
 ]);
 
+// Routes
 router.post(
   '/',
   authMiddleware,
@@ -38,7 +39,6 @@ router.post('/search', searchProperties);
 router.get('/:id', getPropertyById);
 
 export default router;
-
 
 
 
