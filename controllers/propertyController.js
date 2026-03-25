@@ -29,14 +29,15 @@ const uploadToCloudinary = (fileBuffer, mimetype) => {
   });
 };
 
-// Multer config (memory storage)
+// Multer config
 export const upload = multer({ storage: multer.memoryStorage() });
 
-// 🔹 Transform media for frontend
+// Transform media for frontend
 const transformMedia = (media) =>
   media.map((item) => {
     const isVideo =
       item.mimeType?.startsWith('video') || item.url?.endsWith('.mp4');
+
     return {
       id: item.id,
       url: item.url,
@@ -64,9 +65,7 @@ export const createProperty = async (req, res) => {
     } = req.body;
 
     const ownerId = req.user?.id;
-    if (!ownerId) {
-      return res.status(401).json({ message: 'Unauthorized' });
-    }
+    if (!ownerId) return res.status(401).json({ message: 'Unauthorized' });
 
     const uploadedFiles = [];
 
@@ -95,6 +94,7 @@ export const createProperty = async (req, res) => {
         contactEmail: contactEmail || null,
         contactPhone: contactPhone || null,
         contactWhatsapp: contactWhatsapp || null,
+
         images: uploadedFiles.length
           ? {
               create: uploadedFiles,
@@ -112,6 +112,7 @@ export const createProperty = async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Failed to create property:', error);
+
     res.status(500).json({
       message: 'Server error',
       error: error.message,
@@ -139,28 +140,30 @@ export const getPropertyById = async (req, res) => {
       return res.status(404).json({ message: 'Property not found' });
     }
 
-    res.status(200).json({
-      property: {
-        id: property.id,
-        title: property.title,
-        description: property.description,
-        price: property.price,
-        location: property.location,
-        roomType: property.roomType,
-        electricity: property.electricity,
-        wifi: property.wifi,
-        water: property.water,
-        createdAt: property.createdAt,
-        images: transformMedia(property.images),
+    const response = {
+      id: property.id,
+      title: property.title,
+      description: property.description,
+      price: property.price,
+      location: property.location,
+      roomType: property.roomType,
+      electricity: property.electricity,
+      wifi: property.wifi,
+      water: property.water,
+      createdAt: property.createdAt,
 
-        // ✅ Contacts always included
-        contactEmail: property.contactEmail,
-        contactPhone: property.contactPhone,
-        contactWhatsapp: property.contactWhatsapp,
-      },
-    });
+      images: transformMedia(property.images),
+
+      // CONTACTS ALWAYS RETURNED
+      contactEmail: property.contactEmail,
+      contactPhone: property.contactPhone,
+      contactWhatsapp: property.contactWhatsapp,
+    };
+
+    res.status(200).json({ property: response });
   } catch (error) {
     console.error('❌ Failed to fetch property:', error);
+
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -171,7 +174,9 @@ export const getPropertyById = async (req, res) => {
 export const getPropertiesByOwner = async (req, res) => {
   try {
     const ownerId = req.user?.id;
-    if (!ownerId) return res.status(401).json({ message: 'Unauthorized' });
+
+    if (!ownerId)
+      return res.status(401).json({ message: 'Unauthorized' });
 
     const properties = await prisma.property.findMany({
       where: { ownerId },
@@ -179,14 +184,15 @@ export const getPropertiesByOwner = async (req, res) => {
       orderBy: { createdAt: 'desc' },
     });
 
-    res.status(200).json({
-      listings: properties.map((prop) => ({
-        ...prop,
-        images: transformMedia(prop.images),
-      })),
-    });
+    const listings = properties.map((prop) => ({
+      ...prop,
+      images: transformMedia(prop.images),
+    }));
+
+    res.status(200).json({ listings });
   } catch (error) {
     console.error('❌ Failed to fetch properties for owner:', error);
+
     res.status(500).json({
       message: 'Server error',
       error: error.message,
@@ -214,36 +220,33 @@ export const searchProperties = async (req, res) => {
 
     if (query || location) {
       const orConditions = [];
+
       if (query)
         orConditions.push({
           title: { contains: query, mode: 'insensitive' },
         });
+
       if (location)
         orConditions.push({
           location: { contains: location, mode: 'insensitive' },
         });
 
-      if (orConditions.length) {
-        whereConditions.push({ OR: orConditions });
-      }
+      if (orConditions.length) whereConditions.push({ OR: orConditions });
     }
 
-    if (roomType) {
+    if (roomType)
       whereConditions.push({
         roomType: { contains: roomType, mode: 'insensitive' },
       });
-    }
 
     if (minPrice || maxPrice) {
       const priceFilter = {};
-      if (!isNaN(Number(minPrice)))
-        priceFilter.gte = Number(minPrice);
-      if (!isNaN(Number(maxPrice)))
-        priceFilter.lte = Number(maxPrice);
 
-      if (Object.keys(priceFilter).length) {
+      if (!isNaN(Number(minPrice))) priceFilter.gte = Number(minPrice);
+      if (!isNaN(Number(maxPrice))) priceFilter.lte = Number(maxPrice);
+
+      if (Object.keys(priceFilter).length)
         whereConditions.push({ price: priceFilter });
-      }
     }
 
     if (electricity === true || electricity === 'true')
@@ -269,6 +272,7 @@ export const searchProperties = async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Failed to search properties:', error);
+
     res.status(500).json({
       message: 'Server error',
       error: error.message,
@@ -282,6 +286,7 @@ export const searchProperties = async (req, res) => {
 export const deleteProperty = async (req, res) => {
   try {
     const propertyId = Number(req.params.id);
+
     const ownerId = req.user?.id;
 
     if (!ownerId)
@@ -292,9 +297,9 @@ export const deleteProperty = async (req, res) => {
     });
 
     if (!property || property.ownerId !== ownerId)
-      return res.status(403).json({
-        message: 'Unauthorized or property not found',
-      });
+      return res
+        .status(403)
+        .json({ message: 'Unauthorized or property not found' });
 
     await prisma.propertyImage.deleteMany({
       where: { propertyId },
@@ -309,6 +314,7 @@ export const deleteProperty = async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Failed to delete property:', error);
+
     res.status(500).json({
       message: 'Server error',
       error: error.message,
