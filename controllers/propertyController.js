@@ -46,9 +46,9 @@ const transformMedia = (media) =>
 // ======================================================
 // 🏡 CREATE PROPERTY
 // ======================================================
-import { prisma } from '../prismaClient.js'; // adjust path if needed
-import { uploadToCloudinary } from '../utils/cloudinary.js'; // your Cloudinary helper
-import { transformMedia } from '../utils/transformMedia.js'; // optional, keeps your frontend happy
+import { prisma } from '../prismaClient.js';
+import { uploadToCloudinary } from '../utils/cloudinary.js'; // make sure this exists
+import { transformMedia } from '../utils/transformMedia.js'; // optional for frontend
 
 export const createProperty = async (req, res) => {
   try {
@@ -73,17 +73,17 @@ export const createProperty = async (req, res) => {
     const uploadedFiles = [];
 
     if (req.files) {
-      // Merge images & videos arrays safely
       const images = req.files['images'] || [];
       const videos = req.files['videos'] || [];
       const allFiles = [...images, ...videos];
 
       for (const file of allFiles) {
-        // Determine resource type for Cloudinary
         const resourceType = file.mimetype.startsWith('video') ? 'video' : 'image';
 
-        // Upload buffer as base64 (works with multer memoryStorage)
+        // Convert buffer to base64 for Cloudinary upload
         const base64Data = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
+
+        // Upload to Cloudinary
         const result = await uploadToCloudinary(base64Data, resourceType);
 
         uploadedFiles.push({
@@ -110,7 +110,7 @@ export const createProperty = async (req, res) => {
         contactWhatsapp: contactWhatsapp || null,
         images: uploadedFiles.length
           ? { create: uploadedFiles }
-          : undefined, // skip if no media uploaded
+          : undefined,
       },
       include: { images: true },
     });
@@ -118,7 +118,7 @@ export const createProperty = async (req, res) => {
     res.status(201).json({
       property: {
         ...newProperty,
-        images: transformMedia(newProperty.images),
+        images: transformMedia ? transformMedia(newProperty.images) : newProperty.images,
       },
     });
   } catch (error) {
