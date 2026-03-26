@@ -1,4 +1,7 @@
-import prisma from '../lib/prisma.js';
+// ==================
+// 🏡 PROPERTY CONTROLLERS
+// ==================
+import { prisma } from '../lib/prisma.js'; // single consistent import
 import multer from 'multer';
 import { v2 as cloudinary } from 'cloudinary';
 
@@ -11,47 +14,33 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// Helper for Cloudinary upload
+// Multer setup for memory storage
+export const upload = multer({ storage: multer.memoryStorage() });
+
+// Cloudinary upload helper
 const uploadToCloudinary = (fileBuffer, mimetype) => {
   return new Promise((resolve, reject) => {
-    const isVideo = mimetype?.startsWith('video/');
+    const isVideo = mimetype.startsWith('video/');
     const stream = cloudinary.uploader.upload_stream(
-      {
-        folder: 'elihomes_uploads',
-        resource_type: isVideo ? 'video' : 'image',
-      },
-      (error, result) => {
-        if (error) reject(error);
-        else resolve(result);
-      }
+      { folder: 'elihomes_uploads', resource_type: isVideo ? 'video' : 'image' },
+      (error, result) => (error ? reject(error) : resolve(result))
     );
     stream.end(fileBuffer);
   });
 };
 
-// Multer config to handle file uploads in memory
-export const upload = multer({ storage: multer.memoryStorage() });
-
-// 🔹 Helper to transform media for frontend (detect videos)
+// Transform media for frontend
 const transformMedia = (media) =>
-  media.map((item) => {
-    const isVideo = item.mimeType?.startsWith('video') || item.url?.endsWith('.mp4');
-    return {
-      id: item.id,
-      url: item.url,
-      resourceType: isVideo ? 'video' : 'image',
-    };
-  });
-
-
+  media.map((item) => ({
+    id: item.id,
+    url: item.url,
+    resourceType:
+      item.mimeType?.startsWith('video') || item.url?.endsWith('.mp4') ? 'video' : 'image',
+  }));
 
 // ======================================================
 // 🏡 CREATE PROPERTY
 // ======================================================
-import { prisma } from '../prismaClient.js'; // adjust path if needed
-import { uploadToCloudinary } from '../utils/cloudinary.js'; // your Cloudinary helper
-import { transformMedia } from '../utils/transformMedia.js'; // optional
-
 export const createProperty = async (req, res) => {
   try {
     const {
@@ -71,30 +60,20 @@ export const createProperty = async (req, res) => {
     const ownerId = req.user?.id;
     if (!ownerId) return res.status(401).json({ message: 'Unauthorized' });
 
-    // Upload files to Cloudinary
+    // Upload files if any
     const uploadedFiles = [];
-
     if (req.files) {
       const images = Array.isArray(req.files['images']) ? req.files['images'] : [];
       const videos = Array.isArray(req.files['videos']) ? req.files['videos'] : [];
       const allFiles = [...images, ...videos];
 
       for (const file of allFiles) {
-        // Determine resource type
-        const resourceType = file.mimetype.startsWith('video') ? 'video' : 'image';
-        const base64Data = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
-
-        // Upload to Cloudinary
-        const result = await uploadToCloudinary(base64Data, resourceType);
-
-        uploadedFiles.push({
-          url: result.secure_url,
-          mimeType: file.mimetype,
-        });
+        const result = await uploadToCloudinary(file.buffer, file.mimetype);
+        uploadedFiles.push({ url: result.secure_url, mimeType: file.mimetype });
       }
     }
 
-    // Create property
+    // Create property in Prisma
     const newProperty = await prisma.property.create({
       data: {
         title,
@@ -115,12 +94,7 @@ export const createProperty = async (req, res) => {
     });
 
     res.status(201).json({
-      property: {
-        ...newProperty,
-        images: typeof transformMedia === 'function'
-          ? transformMedia(newProperty.images)
-          : newProperty.images,
-      },
+      property: { ...newProperty, images: transformMedia(newProperty.images) },
     });
   } catch (error) {
     console.error('❌ Failed to create property:', error);
