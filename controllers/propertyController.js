@@ -46,10 +46,6 @@ const transformMedia = (media) =>
 // ======================================================
 // 🏡 CREATE PROPERTY
 // ======================================================
-import { prisma } from '../prismaClient.js';
-import { uploadToCloudinary } from '../utils/cloudinary.js'; // make sure this exists
-import { transformMedia } from '../utils/transformMedia.js'; // optional for frontend
-
 export const createProperty = async (req, res) => {
   try {
     const {
@@ -69,31 +65,18 @@ export const createProperty = async (req, res) => {
     const ownerId = req.user?.id;
     if (!ownerId) return res.status(401).json({ message: 'Unauthorized' });
 
-    // Prepare media upload
+    // Upload files to Cloudinary
     const uploadedFiles = [];
-
-    if (req.files) {
-      const images = req.files['images'] || [];
-      const videos = req.files['videos'] || [];
-      const allFiles = [...images, ...videos];
-
-      for (const file of allFiles) {
-        const resourceType = file.mimetype.startsWith('video') ? 'video' : 'image';
-
-        // Convert buffer to base64 for Cloudinary upload
-        const base64Data = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
-
-        // Upload to Cloudinary
-        const result = await uploadToCloudinary(base64Data, resourceType);
-
+    if (req.files && req.files.length > 0) {
+      for (const file of req.files) {
+        const result = await uploadToCloudinary(file.buffer, file.mimetype);
         uploadedFiles.push({
           url: result.secure_url,
-          mimeType: file.mimetype,
+          mimeType: file.mimetype || 'image/jpeg',
         });
       }
     }
 
-    // Create property in Prisma
     const newProperty = await prisma.property.create({
       data: {
         title,
@@ -108,9 +91,9 @@ export const createProperty = async (req, res) => {
         contactEmail: contactEmail || null,
         contactPhone: contactPhone || null,
         contactWhatsapp: contactWhatsapp || null,
-        images: uploadedFiles.length
-          ? { create: uploadedFiles }
-          : undefined,
+        images: {
+          create: uploadedFiles,
+        },
       },
       include: { images: true },
     });
@@ -118,7 +101,7 @@ export const createProperty = async (req, res) => {
     res.status(201).json({
       property: {
         ...newProperty,
-        images: transformMedia ? transformMedia(newProperty.images) : newProperty.images,
+        images: transformMedia(newProperty.images),
       },
     });
   } catch (error) {
@@ -126,7 +109,6 @@ export const createProperty = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
-
 // ======================================================
 // 🏠 GET PROPERTY BY ID
 // ======================================================
