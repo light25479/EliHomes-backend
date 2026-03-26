@@ -65,14 +65,22 @@ export const createProperty = async (req, res) => {
     const ownerId = req.user?.id;
     if (!ownerId) return res.status(401).json({ message: 'Unauthorized' });
 
-    // Upload files to Cloudinary
     const uploadedFiles = [];
-    if (req.files && req.files.length > 0) {
-      for (const file of req.files) {
-        const result = await uploadToCloudinary(file.buffer, file.mimetype);
+
+    if (req.files) {
+      // Combine images and videos
+      const images = req.files['images'] || [];
+      const videos = req.files['videos'] || [];
+      const allFiles = [...images, ...videos];
+
+      for (const file of allFiles) {
+        const resourceType = file.mimetype.startsWith('video') ? 'video' : 'image';
+        const base64Data = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
+        const result = await uploadToCloudinary(base64Data, resourceType);
+
         uploadedFiles.push({
           url: result.secure_url,
-          mimeType: file.mimetype || 'image/jpeg',
+          mimeType: file.mimetype,
         });
       }
     }
@@ -91,9 +99,7 @@ export const createProperty = async (req, res) => {
         contactEmail: contactEmail || null,
         contactPhone: contactPhone || null,
         contactWhatsapp: contactWhatsapp || null,
-        images: {
-          create: uploadedFiles,
-        },
+        images: uploadedFiles.length ? { create: uploadedFiles } : undefined,
       },
       include: { images: true },
     });
@@ -101,7 +107,7 @@ export const createProperty = async (req, res) => {
     res.status(201).json({
       property: {
         ...newProperty,
-        images: transformMedia(newProperty.images),
+        images: transformMedia ? transformMedia(newProperty.images) : newProperty.images,
       },
     });
   } catch (error) {
