@@ -46,6 +46,10 @@ const transformMedia = (media) =>
 // ======================================================
 // 🏡 CREATE PROPERTY
 // ======================================================
+import { prisma } from '../prismaClient.js'; // adjust path if needed
+import { uploadToCloudinary } from '../utils/cloudinary.js'; // your Cloudinary helper
+import { transformMedia } from '../utils/transformMedia.js'; // optional, keeps your frontend happy
+
 export const createProperty = async (req, res) => {
   try {
     const {
@@ -63,92 +67,63 @@ export const createProperty = async (req, res) => {
     } = req.body;
 
     const ownerId = req.user?.id;
+    if (!ownerId) return res.status(401).json({ message: 'Unauthorized' });
 
-    if (!ownerId) {
-      return res.status(401).json({ message: "Unauthorized" });
+    // Prepare media upload
+    const uploadedFiles = [];
+
+    if (req.files) {
+      // Merge images & videos arrays safely
+      const images = req.files['images'] || [];
+      const videos = req.files['videos'] || [];
+      const allFiles = [...images, ...videos];
+
+      for (const file of allFiles) {
+        // Determine resource type for Cloudinary
+        const resourceType = file.mimetype.startsWith('video') ? 'video' : 'image';
+
+        // Upload buffer as base64 (works with multer memoryStorage)
+        const base64Data = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
+        const result = await uploadToCloudinary(base64Data, resourceType);
+
+        uploadedFiles.push({
+          url: result.secure_url,
+          mimeType: file.mimetype,
+        });
+      }
     }
 
-    if (!title || !price || !location || !roomType) {
-      return res.status(400).json({ message: "Missing required fields" });
-    }
-
-    // --------------------------------------------------
-    // Collect uploaded files safely
-    // --------------------------------------------------
-    const filesArray = [
-      ...(req.files?.images || []),
-      ...(req.files?.videos || []),
-    ];
-
-    let uploadedFiles = [];
-
-    // --------------------------------------------------
-    // Upload media to Cloudinary (parallel upload)
-    // --------------------------------------------------
-    if (filesArray.length > 0) {
-      uploadedFiles = await Promise.all(
-        filesArray.map(async (file) => {
-          const result = await uploadToCloudinary(
-            file.buffer,
-            file.mimetype
-          );
-
-          return {
-            url: result.secure_url,
-            mimeType: file.mimetype || "image/jpeg",
-          };
-        })
-      );
-    }
-
-    // --------------------------------------------------
-    // Create property in database
-    // --------------------------------------------------
+    // Create property in Prisma
     const newProperty = await prisma.property.create({
       data: {
         title,
-        description: description || "",
+        description,
         price: Number(price),
         location,
         roomType,
-
-        electricity: electricity === true || electricity === "true",
-        wifi: wifi === true || wifi === "true",
-        water: water === true || water === "true",
-
+        electricity: electricity === true || electricity === 'true',
+        wifi: wifi === true || wifi === 'true',
+        water: water === true || water === 'true',
         ownerId,
-
         contactEmail: contactEmail || null,
         contactPhone: contactPhone || null,
         contactWhatsapp: contactWhatsapp || null,
-
         images: uploadedFiles.length
-          ? {
-              create: uploadedFiles,
-            }
-          : undefined,
+          ? { create: uploadedFiles }
+          : undefined, // skip if no media uploaded
       },
-      include: {
-        images: true,
-      },
+      include: { images: true },
     });
 
-    // --------------------------------------------------
-    // Send response
-    // --------------------------------------------------
-    return res.status(201).json({
+    res.status(201).json({
       property: {
         ...newProperty,
         images: transformMedia(newProperty.images),
       },
     });
   } catch (error) {
-    console.error("❌ CREATE PROPERTY ERROR:", error);
-
-    return res.status(500).json({
-      message: "Failed to create property",
-      error: error.message,
-    });
+    console.error('❌ Failed to create property:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 
