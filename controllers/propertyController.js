@@ -75,15 +75,16 @@ export const createProperty = async (req, res) => {
     const uploadedFiles = [];
 
     if (req.files) {
-      // Combine images and videos safely
-      const images = req.files['images'] || [];
-      const videos = req.files['videos'] || [];
+      const images = Array.isArray(req.files['images']) ? req.files['images'] : [];
+      const videos = Array.isArray(req.files['videos']) ? req.files['videos'] : [];
       const allFiles = [...images, ...videos];
 
       for (const file of allFiles) {
+        // Determine resource type
         const resourceType = file.mimetype.startsWith('video') ? 'video' : 'image';
         const base64Data = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
 
+        // Upload to Cloudinary
         const result = await uploadToCloudinary(base64Data, resourceType);
 
         uploadedFiles.push({
@@ -93,7 +94,7 @@ export const createProperty = async (req, res) => {
       }
     }
 
-    // Create property in Prisma
+    // Create property
     const newProperty = await prisma.property.create({
       data: {
         title,
@@ -116,7 +117,9 @@ export const createProperty = async (req, res) => {
     res.status(201).json({
       property: {
         ...newProperty,
-        images: transformMedia ? transformMedia(newProperty.images) : newProperty.images,
+        images: typeof transformMedia === 'function'
+          ? transformMedia(newProperty.images)
+          : newProperty.images,
       },
     });
   } catch (error) {
@@ -124,7 +127,6 @@ export const createProperty = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
-
 
 
 
