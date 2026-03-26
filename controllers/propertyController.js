@@ -43,9 +43,15 @@ const transformMedia = (media) =>
     };
   });
 
+
+
 // ======================================================
 // 🏡 CREATE PROPERTY
 // ======================================================
+import { prisma } from '../prismaClient.js'; // adjust path if needed
+import { uploadToCloudinary } from '../utils/cloudinary.js'; // your Cloudinary helper
+import { transformMedia } from '../utils/transformMedia.js'; // optional
+
 export const createProperty = async (req, res) => {
   try {
     const {
@@ -65,10 +71,11 @@ export const createProperty = async (req, res) => {
     const ownerId = req.user?.id;
     if (!ownerId) return res.status(401).json({ message: 'Unauthorized' });
 
+    // Upload files to Cloudinary
     const uploadedFiles = [];
 
     if (req.files) {
-      // Combine images and videos
+      // Combine images and videos safely
       const images = req.files['images'] || [];
       const videos = req.files['videos'] || [];
       const allFiles = [...images, ...videos];
@@ -76,6 +83,7 @@ export const createProperty = async (req, res) => {
       for (const file of allFiles) {
         const resourceType = file.mimetype.startsWith('video') ? 'video' : 'image';
         const base64Data = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
+
         const result = await uploadToCloudinary(base64Data, resourceType);
 
         uploadedFiles.push({
@@ -85,6 +93,7 @@ export const createProperty = async (req, res) => {
       }
     }
 
+    // Create property in Prisma
     const newProperty = await prisma.property.create({
       data: {
         title,
@@ -115,6 +124,10 @@ export const createProperty = async (req, res) => {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+
+
+
+
 // ======================================================
 // 🏠 GET PROPERTY BY ID
 // ======================================================
