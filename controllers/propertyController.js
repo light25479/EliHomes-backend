@@ -1,7 +1,7 @@
 // ==================
 // 🏡 PROPERTY CONTROLLERS
 // ==================
-import { prisma } from '../lib/prisma.js'; // single consistent import
+import prisma from '../lib/prisma.js'; 
 import multer from 'multer';
 import { v2 as cloudinary } from 'cloudinary';
 
