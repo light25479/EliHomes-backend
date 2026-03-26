@@ -63,53 +63,92 @@ export const createProperty = async (req, res) => {
     } = req.body;
 
     const ownerId = req.user?.id;
-    if (!ownerId) return res.status(401).json({ message: 'Unauthorized' });
 
-    // Upload files to Cloudinary
-    const uploadedFiles = [];
-    if (req.files) {
-      // Handle both images and videos from Multer fields
-      const filesArray = [...(req.files['images'] || []), ...(req.files['videos'] || [])];
-
-      for (const file of filesArray) {
-        const result = await uploadToCloudinary(file.buffer, file.mimetype);
-        uploadedFiles.push({
-          url: result.secure_url,
-          mimeType: file.mimetype || 'image/jpeg',
-        });
-      }
+    if (!ownerId) {
+      return res.status(401).json({ message: "Unauthorized" });
     }
 
+    if (!title || !price || !location || !roomType) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    // --------------------------------------------------
+    // Collect uploaded files safely
+    // --------------------------------------------------
+    const filesArray = [
+      ...(req.files?.images || []),
+      ...(req.files?.videos || []),
+    ];
+
+    let uploadedFiles = [];
+
+    // --------------------------------------------------
+    // Upload media to Cloudinary (parallel upload)
+    // --------------------------------------------------
+    if (filesArray.length > 0) {
+      uploadedFiles = await Promise.all(
+        filesArray.map(async (file) => {
+          const result = await uploadToCloudinary(
+            file.buffer,
+            file.mimetype
+          );
+
+          return {
+            url: result.secure_url,
+            mimeType: file.mimetype || "image/jpeg",
+          };
+        })
+      );
+    }
+
+    // --------------------------------------------------
+    // Create property in database
+    // --------------------------------------------------
     const newProperty = await prisma.property.create({
       data: {
         title,
-        description,
+        description: description || "",
         price: Number(price),
         location,
         roomType,
-        electricity: electricity === true || electricity === 'true',
-        wifi: wifi === true || wifi === 'true',
-        water: water === true || water === 'true',
+
+        electricity: electricity === true || electricity === "true",
+        wifi: wifi === true || wifi === "true",
+        water: water === true || water === "true",
+
         ownerId,
+
         contactEmail: contactEmail || null,
         contactPhone: contactPhone || null,
         contactWhatsapp: contactWhatsapp || null,
-        images: {
-          create: uploadedFiles,
-        },
+
+        images: uploadedFiles.length
+          ? {
+              create: uploadedFiles,
+            }
+          : undefined,
       },
-      include: { images: true },
+      include: {
+        images: true,
+      },
     });
 
-    res.status(201).json({
+    // --------------------------------------------------
+    // Send response
+    // --------------------------------------------------
+    return res.status(201).json({
       property: {
         ...newProperty,
         images: transformMedia(newProperty.images),
       },
     });
   } catch (error) {
-    console.error('❌ Failed to create property:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error("❌ CREATE PROPERTY ERROR:", error);
+
+    return res.status(500).json({
+      message: "Failed to create property",
+      error: error.message,
+    });
   }
 };
 
