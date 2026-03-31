@@ -69,7 +69,12 @@ export const createProperty = async (req, res) => {
 
       for (const file of allFiles) {
         const result = await uploadToCloudinary(file.buffer, file.mimetype);
-        uploadedFiles.push({ url: result.secure_url, mimeType: file.mimetype });
+
+        uploadedFiles.push({
+          url: result.secure_url,
+          mimeType: file.mimetype,
+          publicId: result.public_id, // ✅ FIX
+        });
       }
     }
 
@@ -253,19 +258,25 @@ export const updateProperty = async (req, res) => {
     }
 
     // Upload new files to Cloudinary
-    const newImagesData = [];
-    if (req.files) {
-      const filesArray = [...(req.files['images'] || []), ...(req.files['videos'] || [])];
-      for (const file of filesArray) {
-        const result = await uploadToCloudinary(file.buffer, file.mimetype);
-        newImagesData.push({
-          url: result.secure_url,
-          mimeType: file.mimetype || 'image/jpeg',
-          propertyId,
-        });
-      }
-      if (newImagesData.length) await prisma.propertyImage.createMany({ data: newImagesData });
-    }
+const newImagesData = [];
+if (req.files) {
+  const filesArray = [...(req.files['images'] || []), ...(req.files['videos'] || [])];
+
+  for (const file of filesArray) {
+    const result = await uploadToCloudinary(file.buffer, file.mimetype);
+
+    newImagesData.push({
+      url: result.secure_url,
+      mimeType: file.mimetype || 'image/jpeg',
+      publicId: result.public_id, // ✅ FIX
+      propertyId,
+    });
+  }
+
+  if (newImagesData.length) {
+    await prisma.propertyImage.createMany({ data: newImagesData });
+  }
+}
 
     // Update property fields safely
     const updatedProperty = await prisma.property.update({
@@ -314,13 +325,27 @@ export const deleteProperty = async (req, res) => {
   try {
     const propertyId = Number(req.params.id);
     const ownerId = req.user?.id;
+
     if (!ownerId) return res.status(401).json({ message: 'Unauthorized' });
 
-    const property = await prisma.property.findUnique({ where: { id: propertyId } });
+    const property = await prisma.property.findUnique({
+      where: { id: propertyId },
+      include: { images: true },
+    });
+
     if (!property || property.ownerId !== ownerId)
       return res.status(403).json({ message: 'Unauthorized or property not found' });
 
-    // Delete related images
+    // Delete files from Cloudinary
+    for (const image of property.images) {
+      if (image.publicId) {
+        await cloudinary.uploader.destroy(image.publicId, {
+          resource_type: image.mimeType?.startsWith('video') ? 'video' : 'image',
+        });
+      }
+    }
+
+    // Delete related images from DB
     await prisma.propertyImage.deleteMany({ where: { propertyId } });
 
     // Delete property
