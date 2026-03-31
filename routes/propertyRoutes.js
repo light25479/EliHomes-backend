@@ -9,7 +9,6 @@ import {
   deleteProperty,
 } from '../controllers/propertyController.js';
 import authMiddleware from '../middleware/auth.js';
-import { checkPaymentOptional } from '../middleware/paymentCheck.js';
 
 const router = express.Router();
 
@@ -23,19 +22,27 @@ const uploadFields = upload.fields([
   { name: 'videos', maxCount: 5 },
 ]);
 
-// Routes
+// Create property
 router.post(
   '/',
   authMiddleware,
-  checkPaymentOptional('LISTING'),
   uploadFields,
   createProperty
 );
 
+// Get properties by owner
 router.get('/owner', authMiddleware, getPropertiesByOwner);
+
+// Update property
 router.put('/:id', authMiddleware, uploadFields, updateProperty);
+
+// Delete property
 router.delete('/:id', authMiddleware, deleteProperty);
+
+// Search properties
 router.post('/search', searchProperties);
+
+// Get property by ID
 router.get('/:id', getPropertyById);
 
 export default router;
