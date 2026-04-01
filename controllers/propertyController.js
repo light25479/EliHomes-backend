@@ -76,12 +76,11 @@ export const createProperty = async (req, res) => {
 
         const isVideo = file.mimetype.startsWith('video/');
 
-        uploadedFiles.push({
-          url: result.secure_url,
-          mimeType: file.mimetype,
-          publicId: result.public_id,
-          resourceType: isVideo ? 'video' : 'image', // ✅ FIX (required by Prisma)
-        });
+       uploadedFiles.push({
+  url: result.secure_url,
+  publicId: result.public_id,
+  resourceType: isVideo ? 'video' : 'image',
+});
       }
     }
 
@@ -445,12 +444,11 @@ export const updateProperty = async (req, res) => {
         const isVideo = file.mimetype.startsWith("video/");
 
         newImagesData.push({
-          url: result.secure_url,
-          mimeType: file.mimetype || "image/jpeg",
-          publicId: result.public_id,
-          resourceType: isVideo ? "video" : "image", // ✅ REQUIRED
-          propertyId,
-        });
+  url: result.secure_url,
+  publicId: result.public_id,
+  resourceType: isVideo ? 'video' : 'image',
+  propertyId,
+});
       }
 
       if (newImagesData.length) {
