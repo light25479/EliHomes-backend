@@ -39,6 +39,7 @@ const transformMedia = (media) =>
   }));
 
 // ======================================================
+// ======================================================
 // 🏡 CREATE PROPERTY
 // ======================================================
 export const createProperty = async (req, res) => {
@@ -62,9 +63,12 @@ export const createProperty = async (req, res) => {
       return res.status(401).json({ message: 'Unauthorized' });
     }
 
+    // 🔒 File size limits
+    const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
+    const MAX_VIDEO_SIZE = 50 * 1024 * 1024; // 50MB
+
     const uploadedFiles = [];
 
-    // Upload files if present
     if (req.files) {
       const images = Array.isArray(req.files['images']) ? req.files['images'] : [];
       const videos = Array.isArray(req.files['videos']) ? req.files['videos'] : [];
@@ -72,15 +76,31 @@ export const createProperty = async (req, res) => {
       const allFiles = [...images, ...videos];
 
       for (const file of allFiles) {
-        const result = await uploadToCloudinary(file.buffer, file.mimetype);
 
         const isVideo = file.mimetype.startsWith('video/');
+        const fileSize = file.size;
 
-       uploadedFiles.push({
-  url: result.secure_url,
-  publicId: result.public_id,
-  resourceType: isVideo ? 'video' : 'image',
-});
+        // 🚫 Prevent large uploads
+        if (!isVideo && fileSize > MAX_IMAGE_SIZE) {
+          return res.status(400).json({
+            message: `Image "${file.originalname}" exceeds the 10MB limit`,
+          });
+        }
+
+        if (isVideo && fileSize > MAX_VIDEO_SIZE) {
+          return res.status(400).json({
+            message: `Video "${file.originalname}" exceeds the 50MB limit`,
+          });
+        }
+
+        // Upload to Cloudinary
+        const result = await uploadToCloudinary(file.buffer, file.mimetype);
+
+        uploadedFiles.push({
+          url: result.secure_url,
+          publicId: result.public_id,
+          resourceType: isVideo ? 'video' : 'image',
+        });
       }
     }
 
