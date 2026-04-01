@@ -38,7 +38,39 @@ export const upload = multer({
     cb(null, true);
   },
 });
+// ==================
+// ☁️ CLOUDINARY UPLOAD HELPER
+// ==================
+const uploadToCloudinary = (fileBuffer, mimetype) => {
+  return new Promise((resolve, reject) => {
+    const isVideo = mimetype.startsWith('video/');
 
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: 'elihomes_uploads',
+        resource_type: isVideo ? 'video' : 'image',
+      },
+      (error, result) => {
+        if (error) return reject(error);
+        resolve(result);
+      }
+    );
+
+    stream.end(fileBuffer);
+  });
+};
+
+// ==================
+// 🖼 TRANSFORM MEDIA FOR FRONTEND
+// ==================
+const transformMedia = (media = []) =>
+  media.map((item) => ({
+    id: item.id,
+    url: item.url,
+    resourceType:
+      item.resourceType ||
+      (item.url?.endsWith('.mp4') ? 'video' : 'image'),
+  }));
 // ======================================================
 // ======================================================
 // 🏡 CREATE PROPERTY
