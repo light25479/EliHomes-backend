@@ -14,29 +14,30 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// Multer setup for memory storage
-export const upload = multer({ storage: multer.memoryStorage() });
+// ==================
+// 📦 MULTER CONFIG
+// ==================
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_VIDEO_SIZE = 50 * 1024 * 1024; // 50MB
 
-// Cloudinary upload helper
-const uploadToCloudinary = (fileBuffer, mimetype) => {
-  return new Promise((resolve, reject) => {
-    const isVideo = mimetype.startsWith('video/');
-    const stream = cloudinary.uploader.upload_stream(
-      { folder: 'elihomes_uploads', resource_type: isVideo ? 'video' : 'image' },
-      (error, result) => (error ? reject(error) : resolve(result))
-    );
-    stream.end(fileBuffer);
-  });
-};
+export const upload = multer({
+  storage: multer.memoryStorage(),
 
-// Transform media for frontend
-const transformMedia = (media) =>
-  media.map((item) => ({
-    id: item.id,
-    url: item.url,
-    resourceType:
-      item.mimeType?.startsWith('video') || item.url?.endsWith('.mp4') ? 'video' : 'image',
-  }));
+  limits: {
+    fileSize: MAX_VIDEO_SIZE, // hard stop at 50MB
+  },
+
+  fileFilter: (req, file, cb) => {
+    const isImage = file.mimetype.startsWith('image/');
+    const isVideo = file.mimetype.startsWith('video/');
+
+    if (!isImage && !isVideo) {
+      return cb(new Error('Only images and videos are allowed'), false);
+    }
+
+    cb(null, true);
+  },
+});
 
 // ======================================================
 // ======================================================
